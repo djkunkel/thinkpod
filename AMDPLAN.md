@@ -176,26 +176,42 @@ will claim these nodes for GPU compute.
 /dev/dri/card0      -> 660 root:video
 ```
 
-### User groups: ACTION NEEDED
+### User groups: DONE (with Bazzite workaround)
 
-The current user is **not** in the `video` or `render` groups:
+The current user was **not** in the `video` or `render` groups. On Bazzite
+(and other immutable Fedora variants), `sudo usermod -aG video dj` **silently
+does nothing** -- it exits 0 but doesn't modify group membership.
 
-```
-$ groups
-dj wheel libvirt docker
-```
+**Why**: Bazzite uses a split group database:
 
-Before using the R9700, run:
+- `/usr/lib/group` -- read-only OS image (has `video:x:39:`, `render:x:105:`)
+- `/etc/group` -- local overrides (writable, but these groups aren't in it)
+- NSS resolves both via `files [SUCCESS=merge] altfiles`
+
+`usermod` sees the group exists (via NSS), but can't find it in `/etc/group`
+to modify. It silently succeeds without changing anything.
+
+**The fix**: Manually add the groups with the user to `/etc/group`:
 
 ```sh
-sudo usermod -aG video,render $USER
-# Then log out and back in
+sudo bash -c 'grep -q "^video:" /etc/group || echo "video:x:39:dj" >> /etc/group'
+sudo bash -c 'grep -q "^render:" /etc/group || echo "render:x:105:dj" >> /etc/group'
 ```
 
-This is needed for rootless podman to access `/dev/dri/card0` (which is
-`660 root:video`). The `renderD128` and `kfd` nodes are world-accessible
-(`666`) so they work without group membership, but `card0` access is
-required for full GPU functionality.
+This creates local entries that the `[SUCCESS=merge]` NSS directive combines
+with the OS image entries. Verified working:
+
+```
+$ id dj
+uid=1000(dj) gid=1000(dj) groups=1000(dj),10(wheel),1001(docker),960(libvirt),39(video),105(render)
+```
+
+Log out and back in for the current session to pick up the new groups.
+
+Group membership is needed for rootless podman to access `/dev/dri/card0`
+(which is `660 root:video`). The `renderD128` and `kfd` nodes are
+world-accessible (`666`) so they work without group membership, but `card0`
+access is required for full GPU functionality.
 
 ### nvidia-container-toolkit / CDI: NO LONGER NEEDED
 
@@ -285,7 +301,7 @@ When you have the R9700 installed:
 - [ ] **Physical install**: Swap RTX 4070 for R9700, connect power
 - [ ] **First boot**: Verify `amdgpu` loads: `lsmod | grep amdgpu`
 - [ ] **Device nodes**: Verify `/dev/kfd` and `/dev/dri/renderD128` exist
-- [ ] **User groups**: `sudo usermod -aG video,render $USER` + re-login
+- [x] **User groups**: Added `video` + `render` (see Bazzite workaround above) -- re-login needed to activate
 - [ ] **Smoke test**: `podman run --rm --device /dev/kfd --device /dev/dri rocm/dev-ubuntu-24.04:7.2 rocminfo`
 - [ ] **Pull image**: `podman pull ghcr.io/ggml-org/llama.cpp:server-rocm`
 - [ ] **Update serve.sh**: Set `GPU_BACKEND=rocm` (or implement auto-detection)
