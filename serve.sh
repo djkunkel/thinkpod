@@ -25,7 +25,7 @@ IMAGE="${IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13}"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8080}"
-CTX_SIZE="${CTX_SIZE:-32768}"
+CTX_SIZE="${CTX_SIZE:-48000}"
 N_PREDICT="${N_PREDICT:-8000}"
 N_GPU_LAYERS="${N_GPU_LAYERS:-999}"
 
@@ -36,9 +36,15 @@ TOP_P="${TOP_P:-0.95}"
 PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.8}"
 
 # Reasoning / thinking
+# --reasoning on: passes enable_thinking=true to the Jinja template
+# --reasoning-budget N: hard token limit on thinking; when exceeded, the server
+#   forcibly injects the budget message + </think> to end reasoning.
+# --reasoning-budget-message: text injected just before the forced </think> to
+#   nudge the model into wrapping up cleanly instead of being cut off mid-sentence.
+#   Without this, the model often leaks partial thoughts into the visible response.
 REASONING="${REASONING:-on}"
-REASONING_BUDGET="${REASONING_BUDGET:-4000}"
-REASONING_BUDGET_MSG="${REASONING_BUDGET_MSG:-}"
+REASONING_BUDGET="${REASONING_BUDGET:-2048}"
+REASONING_BUDGET_MSG="${REASONING_BUDGET_MSG:-$(printf '\n\nOkay, I need to stop thinking and give my response now.\n')}"
 
 # ── Preflight checks ────────────────────────────────────────────────────────
 
@@ -90,6 +96,7 @@ fi
 echo "Model:     $HF_MODEL"
 echo "Image:     $IMAGE"
 echo "Endpoint:  http://localhost:${PORT}"
+echo "Reasoning: $REASONING (budget: $REASONING_BUDGET tokens)"
 echo ""
 
 exec podman run --rm -it \
