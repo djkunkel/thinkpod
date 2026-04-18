@@ -26,6 +26,7 @@ podman run --rm -it \
 |---|---|
 | `models.sh` | Stage model files from HF cache or download from Hub |
 | `build.sh` | Build the container image |
+| `run-remote.sh` | Pull and run on a remote machine (interactive picker) |
 | `Containerfile` | Image definition (used by build.sh) |
 | `entrypoint.sh` | Runtime entrypoint (copied into the image) |
 | `models/` | Staging directory for GGUF files (gitignored) |
@@ -217,6 +218,40 @@ All settings have defaults and can be overridden via `-e` flags at runtime:
 | `REASONING` | `on` | Reasoning mode: `on`, `off`, or `auto` |
 | `REASONING_BUDGET` | `4096` | Max thinking tokens before forced cutoff |
 | `REASONING_BUDGET_MSG` | *(graceful wrap-up)* | Message injected at budget cutoff |
+
+## Running on a remote machine
+
+`run-remote.sh` is a standalone script for pulling and running images on
+machines that don't have the full build environment. Copy it to the remote
+machine or curl it from your Gitea instance.
+
+### First-time setup
+
+```sh
+# 1. Configure insecure registry (if Gitea is plain HTTP)
+echo '[[registry]]
+location = "tendi.lan:4200"
+insecure = true' | sudo tee /etc/containers/registries.conf.d/tendi-gitea.conf
+
+# 2. Login to the registry
+podman login tendi.lan:4200
+```
+
+### Usage
+
+```sh
+# Interactive: shows a menu of available images
+./run-remote.sh
+
+# List available images
+./run-remote.sh --list
+
+# Run a specific tag directly
+./run-remote.sh qwen3.5-4b-q4_k_m-gfx1103
+```
+
+The script queries the OCI registry for available tags, detects the GPU backend
+from the tag name, and runs with the correct device flags automatically.
 
 ## Swapping models
 
