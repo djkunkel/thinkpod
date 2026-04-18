@@ -42,6 +42,7 @@ or any client that speaks the `/v1/chat/completions` protocol.
 |---|---|
 | `serve.sh` | Main serve script -- runs llama-server in a podman container |
 | `test-context.sh` | Stress test -- verifies VRAM fits the configured context size |
+| `container/` | Self-contained container build with models baked in ([docs](container/README.md)) |
 | `serve-qwen.sh` | Old ramalama-based script (kept for reference) |
 
 ## serve.sh
@@ -273,6 +274,28 @@ container and is sufficient -- `--privileged` is not needed.
 The container mounts the HF cache read-only. The `--offline` flag tells
 llama-server not to attempt any network requests for model downloads,
 since everything is already cached on the host.
+
+## Self-contained container build
+
+The `container/` directory provides a full build system for creating container
+images with models baked in -- no host mounts needed at runtime. Supports both
+CUDA (NVIDIA) and ROCm (AMD) backends.
+
+```sh
+cd container
+
+# Stage models from your HF cache (or download from Hub)
+./models.sh
+
+# Build the image
+./build.sh
+
+# Run it
+podman run --rm -it --network host --device nvidia.com/gpu=all \
+    llama-serve:qwen3.5-4b-q4_k_m-cuda
+```
+
+See [container/README.md](container/README.md) for full documentation.
 
 ## System info
 

@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+#
+# Stage GGUF model files into container/models/ for the container build.
+#
+# This script resolves model files from the host's HuggingFace hub cache. If
+# the requested files aren't cached yet, it downloads them first via the `hf`
+# CLI and then copies them into the staging directory.
+#
+# Usage:
+#   ./models.sh                                         # default model + mmproj
+#   ./models.sh unsloth/Qwen3.5-4B-GGUF                # all GGUFs in repo
+#   ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf
+#   ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf mmproj-F16.gguf
+#   ./models.sh --download unsloth/Qwen3.5-4B-GGUF     # force download first
+#   ./models.sh --list                                  # list cached GGUF repos
+#   ./models.sh --clean                                 # remove staged files
+#
+# Environment:
+#   HF_HUB   Path to HuggingFace hub cache (default: ~/.cache/huggingface/hub)
+
+set -euo pipefail
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+
+DEFAULT_REPO="unsloth/Qwen3.5-4B-GGUF"
+DEFAULT_FILES=("Qwen3.5-4B-Q4_K_M.gguf" "mmproj-F16.gguf")
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELS_DIR="$SCRIPT_DIR/models"
+HF_HUB="${HF_HUB:-$HOME/.cache/huggingface/hub}"
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+die()  { echo "error: $*" >&2; exit 1; }
+info() { echo "==> $*"; }
+warn() { echo "warning: $*" >&2; }
+
+# Convert a HF repo name to the cache directory name.
+#   unsloth/Qwen3.5-4B-GGUF → models--unsloth--Qwen3.5-4B-GGUF
+repo_to_dirname() {
+    echo "models--${1//\//__}"  # first pass: / → __
+    # HF actually uses -- not __ — fix:
+    :
+}
+repo_to_dirname() {
+    local name="$1"
+    echo "models--${name//\//--}"
+}
+
+# Resolve the snapshot directory for a repo. Returns the path to the latest
+# snapshot (via refs/main), or empty string if not cached.
+resolve_snapshot() {
+    local repo="$1"
+    local repo_dir="$HF_HUB/$(repo_to_dirname "$repo")"
+
+    if [[ ! -d "$repo_dir" ]]; then
+        return 1
+    fi
+
+    local ref_file="$repo_dir/refs/main"
+    if [[ ! -f "$ref_file" ]]; then
+        # No refs/main — try to find any snapshot
+        local snap
+        snap=$(find "$repo_dir/snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+        if [[ -n "$snap" ]]; then
+            echo "$snap"
+            return 0
+        fi
+        return 1
+    fi
+
+    local commit_hash
+    commit_hash=$(cat "$ref_file")
+    local snap_dir="$repo_dir/snapshots/$commit_hash"
+
+    if [[ ! -d "$snap_dir" ]]; then
+        return 1
+    fi
+
+    echo "$snap_dir"
+    return 0
+}
+
+# Get the commit hash for a repo from refs/main.
+get_commit_hash() {
+    local repo="$1"
+    local ref_file="$HF_HUB/$(repo_to_dirname "$repo")/refs/main"
+    if [[ -f "$ref_file" ]]; then
+        cat "$ref_file"
+    else
+        # Generate a placeholder hash (used when files are downloaded fresh)
+        echo "0000000000000000000000000000000000000001"
+    fi
+}
+
+# Copy a file from the snapshot to the staging directory. Resolves symlinks
+# to copy the actual blob data. Uses hardlinks when possible to save disk space.
+stage_file() {
+    local src="$1"
+    local filename
+    filename=$(basename "$src")
+
+    # Resolve symlinks to get the real blob path
+    local real_path
+    real_path=$(readlink -f "$src")
+
+    if [[ ! -f "$real_path" ]]; then
+        die "blob not found: $real_path (from $src)"
+    fi
+
+    local dest="$MODELS_DIR/$filename"
+
+    if [[ -f "$dest" ]]; then
+        local src_size dest_size
+        src_size=$(stat -c%s "$real_path")
+        dest_size=$(stat -c%s "$dest")
+        if [[ "$src_size" == "$dest_size" ]]; then
+            info "already staged: $filename ($(human_size "$dest_size"))"
+            return 0
+        fi
+        warn "replacing $filename (size mismatch)"
+    fi
+
+    # Try hardlink first (avoids doubling disk usage on same filesystem)
+    if ln "$real_path" "$dest" 2>/dev/null; then
+        info "hardlinked: $filename ($(human_size "$real_path"))"
+    else
+        info "copying: $filename ($(human_size "$real_path"))..."
+        cp "$real_path" "$dest"
+        info "copied: $filename"
+    fi
+}
+
+# Human-readable file size
+human_size() {
+    local bytes="$1"
+    if [[ -f "$1" ]]; then
+        bytes=$(stat -c%s "$1")
+    fi
+    if (( bytes >= 1073741824 )); then
+        echo "$(echo "scale=1; $bytes / 1073741824" | bc)G"
+    elif (( bytes >= 1048576 )); then
+        echo "$(echo "scale=0; $bytes / 1048576" | bc)M"
+    else
+        echo "${bytes}B"
+    fi
+}
+
+# Write a MANIFEST file recording what was staged.
+write_manifest() {
+    local repo="$1"
+    local commit_hash="$2"
+    shift 2
+    local files=("$@")
+
+    cat > "$MODELS_DIR/MANIFEST" <<EOF
+# Auto-generated by models.sh — do not edit
+# $(date -Iseconds)
+REPO=$repo
+COMMIT=$commit_hash
+FILES=${files[*]}
+EOF
+
+    info "wrote MANIFEST (repo=$repo, commit=${commit_hash:0:12}...)"
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_list() {
+    info "scanning HF cache at $HF_HUB"
+    echo ""
+
+    local found=0
+    for repo_dir in "$HF_HUB"/models--*; do
+        [[ -d "$repo_dir" ]] || continue
+
+        local dirname
+        dirname=$(basename "$repo_dir")
+        # Convert models--org--name back to org/name
+        local repo_name="${dirname#models--}"
+        repo_name="${repo_name//--//}"
+
+        local snap_dir
+        if ! snap_dir=$(resolve_snapshot "$repo_name"); then
+            continue
+        fi
+
+        # Check for .gguf files
+        local gguf_files=()
+        while IFS= read -r -d '' f; do
+            gguf_files+=("$(basename "$f")")
+        done < <(find "$snap_dir" -maxdepth 1 -name '*.gguf' -print0 2>/dev/null)
+
+        if [[ ${#gguf_files[@]} -eq 0 ]]; then
+            continue
+        fi
+
+        found=$((found + 1))
+        echo "  $repo_name"
+        for f in "${gguf_files[@]}"; do
+            local fpath="$snap_dir/$f"
+            local real_path
+            real_path=$(readlink -f "$fpath")
+            if [[ -f "$real_path" ]]; then
+                echo "    $f  ($(human_size "$real_path"))"
+            else
+                echo "    $f  (incomplete)"
+            fi
+        done
+        echo ""
+    done
+
+    if [[ $found -eq 0 ]]; then
+        echo "  (no GGUF models found in cache)"
+    else
+        echo "  $found repo(s) with GGUF files"
+    fi
+}
+
+cmd_clean() {
+    info "cleaning staged models"
+    rm -f "$MODELS_DIR"/*.gguf "$MODELS_DIR"/MANIFEST
+    info "done"
+}
+
+cmd_stage() {
+    local force_download=false
+    local repo=""
+    local files=()
+
+    # Parse args
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --download) force_download=true; shift ;;
+            *)
+                if [[ -z "$repo" && "$1" == */* ]]; then
+                    repo="$1"
+                else
+                    files+=("$1")
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Apply defaults
+    if [[ -z "$repo" ]]; then
+        repo="$DEFAULT_REPO"
+    fi
+    if [[ ${#files[@]} -eq 0 ]]; then
+        if [[ "$repo" == "$DEFAULT_REPO" ]]; then
+            files=("${DEFAULT_FILES[@]}")
+        fi
+        # If non-default repo with no files specified, we'll discover them
+    fi
+
+    info "repo: $repo"
+    mkdir -p "$MODELS_DIR"
+
+    # ── Ensure files are in the HF cache ─────────────────────────────────
+
+    local snap_dir=""
+    if ! $force_download; then
+        snap_dir=$(resolve_snapshot "$repo") || true
+    fi
+
+    if [[ -z "$snap_dir" ]] || $force_download; then
+        info "downloading from HuggingFace Hub..."
+
+        # Check for hf CLI
+        if ! command -v hf &>/dev/null; then
+            die "hf CLI not found. Install it: pip install huggingface_hub[cli]"
+        fi
+
+        if [[ ${#files[@]} -gt 0 ]]; then
+            info "hf download $repo ${files[*]}"
+            hf download "$repo" "${files[@]}"
+        else
+            info "hf download $repo (all files)"
+            hf download "$repo"
+        fi
+
+        # Re-resolve after download
+        snap_dir=$(resolve_snapshot "$repo") || die "repo still not in cache after download: $repo"
+    fi
+
+    info "snapshot: $snap_dir"
+
+    # ── Discover files if none were specified ─────────────────────────────
+
+    if [[ ${#files[@]} -eq 0 ]]; then
+        info "discovering GGUF files in snapshot..."
+        while IFS= read -r -d '' f; do
+            files+=("$(basename "$f")")
+        done < <(find "$snap_dir" -maxdepth 1 -name '*.gguf' -print0 2>/dev/null)
+
+        if [[ ${#files[@]} -eq 0 ]]; then
+            die "no .gguf files found in $snap_dir"
+        fi
+        info "found: ${files[*]}"
+    fi
+
+    # ── Validate requested files exist ────────────────────────────────────
+
+    local missing=()
+    for f in "${files[@]}"; do
+        if [[ ! -e "$snap_dir/$f" ]]; then
+            missing+=("$f")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        warn "files not in cache: ${missing[*]}"
+        info "downloading missing files..."
+
+        if ! command -v hf &>/dev/null; then
+            die "hf CLI not found. Install it: pip install huggingface_hub[cli]"
+        fi
+
+        hf download "$repo" "${missing[@]}"
+
+        # Re-resolve snapshot (hash may have changed)
+        snap_dir=$(resolve_snapshot "$repo") || die "repo not in cache after download"
+    fi
+
+    # ── Stage files ───────────────────────────────────────────────────────
+
+    local staged=()
+    for f in "${files[@]}"; do
+        local src="$snap_dir/$f"
+        if [[ ! -e "$src" ]]; then
+            die "file not found after download: $src"
+        fi
+        stage_file "$src"
+        staged+=("$f")
+    done
+
+    # ── Write manifest ────────────────────────────────────────────────────
+
+    local commit_hash
+    commit_hash=$(get_commit_hash "$repo")
+    write_manifest "$repo" "$commit_hash" "${staged[@]}"
+
+    # ── Summary ───────────────────────────────────────────────────────────
+
+    echo ""
+    info "staged ${#staged[@]} file(s) in $MODELS_DIR:"
+    local total=0
+    for f in "${staged[@]}"; do
+        local size
+        size=$(stat -c%s "$MODELS_DIR/$f")
+        total=$((total + size))
+        echo "    $f  ($(human_size "$size"))"
+    done
+    echo ""
+    info "total: $(human_size "$total")"
+    echo ""
+    info "next: ./build.sh"
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+    --list)  cmd_list ;;
+    --clean) cmd_clean ;;
+    --help|-h)
+        echo "Usage: ./models.sh [OPTIONS] [REPO] [FILE...]"
+        echo ""
+        echo "Stage GGUF model files for the container build."
+        echo ""
+        echo "Commands:"
+        echo "  --list          List GGUF models in the HF cache"
+        echo "  --clean         Remove all staged model files"
+        echo "  --help          Show this help"
+        echo ""
+        echo "Options:"
+        echo "  --download      Force download even if files are cached"
+        echo ""
+        echo "Examples:"
+        echo "  ./models.sh                                         # default model"
+        echo "  ./models.sh unsloth/Qwen3.5-4B-GGUF                # all GGUFs in repo"
+        echo "  ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf"
+        echo "  ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf mmproj-F16.gguf"
+        echo "  ./models.sh --download unsloth/Qwen3.5-4B-GGUF     # force download"
+        echo ""
+        echo "Environment:"
+        echo "  HF_HUB   HuggingFace cache path (default: ~/.cache/huggingface/hub)"
+        ;;
+    *)
+        cmd_stage "$@"
+        ;;
+esac

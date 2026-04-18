@@ -1,0 +1,5 @@
+# Only send model files and entrypoint to the build context.
+# This keeps the build context small and avoids leaking scripts into the image.
+*
+!models/*.gguf
+!entrypoint.sh

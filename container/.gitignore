@@ -1,0 +1,6 @@
+# Staged model files (multi-GB, never commit)
+models/*.gguf
+models/MANIFEST
+
+# Build artifacts
+!models/.gitkeep
