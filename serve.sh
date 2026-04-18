@@ -25,15 +25,15 @@ IMAGE="${IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13}"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8080}"
-CTX_SIZE="${CTX_SIZE:-48000}"
-N_PREDICT="${N_PREDICT:-8000}"
+CTX_SIZE="${CTX_SIZE:-100000}"
+N_PREDICT="${N_PREDICT:-32768}"
 N_GPU_LAYERS="${N_GPU_LAYERS:-999}"
 
 # Sampling
 TEMP="${TEMP:-1.0}"
 TOP_K="${TOP_K:-20}"
 TOP_P="${TOP_P:-0.95}"
-PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.8}"
+PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.5}"
 
 # Reasoning / thinking
 # --reasoning on: passes enable_thinking=true to the Jinja template
@@ -43,7 +43,7 @@ PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.8}"
 #   nudge the model into wrapping up cleanly instead of being cut off mid-sentence.
 #   Without this, the model often leaks partial thoughts into the visible response.
 REASONING="${REASONING:-on}"
-REASONING_BUDGET="${REASONING_BUDGET:-2048}"
+REASONING_BUDGET="${REASONING_BUDGET:-4096}"
 REASONING_BUDGET_MSG="${REASONING_BUDGET_MSG:-$(printf '\n\nOkay, I need to stop thinking and give my response now.\n')}"
 
 # ── Preflight checks ────────────────────────────────────────────────────────
