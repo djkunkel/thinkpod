@@ -1,10 +1,11 @@
 # Self-contained llama-server image with model baked in.
 #
 # Build args:
-#   BASE_IMAGE     - upstream llama.cpp server image (CUDA or ROCm)
+#   BASE_IMAGE     - upstream llama.cpp server image (CUDA, ROCm, or Vulkan)
 #   HF_REPO        - HuggingFace repo name (e.g. unsloth/Qwen3.5-4B-GGUF)
 #   HF_REPO_CACHE  - cache dir name (e.g. models--unsloth--Qwen3.5-4B-GGUF)
 #   COMMIT_HASH    - snapshot commit hash (from HF cache refs/main)
+#   GFX1103_HACK   - "1" to apply Radeon 780M/760M gfx1103 ROCm workaround
 #
 # These are set automatically by build.sh from the MANIFEST file.
 
@@ -15,6 +16,7 @@ FROM ${BASE_IMAGE}
 ARG HF_REPO=unsloth/Qwen3.5-4B-GGUF
 ARG HF_REPO_CACHE=models--unsloth--Qwen3.5-4B-GGUF
 ARG COMMIT_HASH=0000000000000000000000000000000000000001
+ARG GFX1103_HACK=0
 
 # Set up the HF cache directory structure so that:
 #   llama-server -hf $HF_REPO --offline
@@ -28,6 +30,36 @@ RUN mkdir -p "/root/.cache/huggingface/hub/${HF_REPO_CACHE}/refs" \
 # The filenames are preserved so llama-server's -hf flag can match them by
 # quantization tag and detect mmproj files by name.
 COPY models/*.gguf "/root/.cache/huggingface/hub/${HF_REPO_CACHE}/snapshots/${COMMIT_HASH}/"
+
+# ── gfx1103 workaround (Radeon 780M / 760M) ─────────────────────────────────
+# The 780M is gfx1103, which is ISA-compatible with gfx1102 but AMD does not
+# ship rocBLAS TensileLibrary files for it. We symlink all gfx1102 Tensile/HSACO
+# files as gfx1103, and set HSA_OVERRIDE_GFX_VERSION=11.0.2 so the HSA runtime
+# reports the GPU as gfx1102. This mirrors the workaround required for Ollama.
+# See: https://github.com/ggml-org/llama.cpp/issues/20839
+RUN if [ "${GFX1103_HACK}" = "1" ]; then \
+        echo "==> applying gfx1103 workaround (symlinking gfx1102 -> gfx1103)"; \
+        for dir in \
+            /opt/rocm/lib/rocblas/library \
+            /opt/rocm/lib/hipblaslt/library \
+            /opt/rocm-*/lib/rocblas/library \
+            /opt/rocm-*/lib/hipblaslt/library; do \
+            [ -d "$dir" ] || continue; \
+            cd "$dir"; \
+            for f in *gfx1102*; do \
+                [ -e "$f" ] || continue; \
+                target=$(echo "$f" | sed 's/gfx1102/gfx1103/g'); \
+                [ -e "$target" ] || ln -sf "$f" "$target"; \
+            done; \
+        done; \
+    fi
+
+# Set the HSA override permanently for gfx1103 images.
+# We write it to /etc/environment so the entrypoint can source it; using ENV
+# with a conditional ARG isn't cleanly supported in Dockerfile syntax.
+RUN if [ "${GFX1103_HACK}" = "1" ]; then \
+        echo 'HSA_OVERRIDE_GFX_VERSION=11.0.2' >> /etc/environment; \
+    fi
 
 # Copy the entrypoint and patch in the default model name
 COPY entrypoint.sh /entrypoint.sh

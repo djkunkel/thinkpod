@@ -4,7 +4,9 @@
 #
 # Usage:
 #   ./build.sh                     # build with default CUDA base + staged models
-#   ./build.sh --rocm              # build with ROCm base (AMD GPUs)
+#   ./build.sh --rocm              # build with ROCm base (AMD discrete GPUs)
+#   ./build.sh --gfx1103           # build ROCm with Radeon 780M/760M workaround
+#   ./build.sh --vulkan            # build with Vulkan base (AMD iGPU/Intel/broad compat)
 #   ./build.sh --tag my-llama:v1   # custom image tag
 #   ./build.sh --skip-stage        # skip auto-staging (models/ must be populated)
 #   ./build.sh --engine docker     # use docker instead of podman
@@ -26,8 +28,10 @@ MANIFEST="$MODELS_DIR/MANIFEST"
 
 BASE_IMAGE_CUDA="ghcr.io/ggml-org/llama.cpp:server-cuda13"
 BASE_IMAGE_ROCM="ghcr.io/ggml-org/llama.cpp:server-rocm"
+BASE_IMAGE_VULKAN="ghcr.io/ggml-org/llama.cpp:server-vulkan"
 BASE_IMAGE=""
 GPU_BACKEND="cuda"
+GFX1103_HACK=false
 IMAGE_TAG=""
 SKIP_STAGE=false
 ENGINE=""
@@ -40,6 +44,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --rocm)       GPU_BACKEND="rocm"; shift ;;
         --cuda)       GPU_BACKEND="cuda"; shift ;;
+        --vulkan)     GPU_BACKEND="vulkan"; shift ;;
+        --gfx1103)    GPU_BACKEND="rocm"; GFX1103_HACK=true; shift ;;
         --tag)        IMAGE_TAG="$2"; shift 2 ;;
         --skip-stage) SKIP_STAGE=true; shift ;;
         --engine)     ENGINE="$2"; shift 2 ;;
@@ -52,8 +58,10 @@ while [[ $# -gt 0 ]]; do
             echo "Build a self-contained llama-server container image."
             echo ""
             echo "Options:"
-            echo "  --rocm          Use ROCm base image (AMD GPUs)"
             echo "  --cuda          Use CUDA base image (default, NVIDIA GPUs)"
+            echo "  --rocm          Use ROCm base image (AMD discrete GPUs)"
+            echo "  --gfx1103       ROCm with Radeon 780M/760M workaround (gfx1102 symlinks)"
+            echo "  --vulkan        Use Vulkan base image (AMD iGPU, Intel, broad compat)"
             echo "  --base-image X  Override the base image entirely"
             echo "  --tag TAG       Custom image tag (default: auto-generated)"
             echo "  --skip-stage    Don't auto-stage models (models/ must exist)"
@@ -90,14 +98,18 @@ echo "==> engine: $ENGINE"
 
 if [[ -z "$BASE_IMAGE" ]]; then
     case "$GPU_BACKEND" in
-        cuda) BASE_IMAGE="$BASE_IMAGE_CUDA" ;;
-        rocm) BASE_IMAGE="$BASE_IMAGE_ROCM" ;;
-        *)    echo "error: unknown backend: $GPU_BACKEND" >&2; exit 1 ;;
+        cuda)   BASE_IMAGE="$BASE_IMAGE_CUDA" ;;
+        rocm)   BASE_IMAGE="$BASE_IMAGE_ROCM" ;;
+        vulkan) BASE_IMAGE="$BASE_IMAGE_VULKAN" ;;
+        *)      echo "error: unknown backend: $GPU_BACKEND" >&2; exit 1 ;;
     esac
 fi
 
 echo "==> base image: $BASE_IMAGE"
 echo "==> GPU backend: $GPU_BACKEND"
+if $GFX1103_HACK; then
+    echo "==> gfx1103:    Radeon 780M/760M workaround enabled"
+fi
 
 # ── Auto-stage models if needed ──────────────────────────────────────────────
 
@@ -170,10 +182,16 @@ if [[ -z "$IMAGE_TAG" ]]; then
         fi
     done
 
+    # Determine the backend suffix for the tag
+    tag_backend="$GPU_BACKEND"
+    if $GFX1103_HACK; then
+        tag_backend="gfx1103"
+    fi
+
     if [[ -n "$quant" ]]; then
-        IMAGE_TAG="llama-serve:${local_name}-${quant}-${GPU_BACKEND}"
+        IMAGE_TAG="llama-serve:${local_name}-${quant}-${tag_backend}"
     else
-        IMAGE_TAG="llama-serve:${local_name}-${GPU_BACKEND}"
+        IMAGE_TAG="llama-serve:${local_name}-${tag_backend}"
     fi
 fi
 
@@ -182,6 +200,12 @@ echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
+# Translate GFX1103_HACK bool to build arg
+GFX1103_ARG="0"
+if $GFX1103_HACK; then
+    GFX1103_ARG="1"
+fi
+
 echo "==> building image..."
 $ENGINE build \
     -f "$SCRIPT_DIR/Containerfile" \
@@ -189,6 +213,7 @@ $ENGINE build \
     --build-arg "HF_REPO=$REPO" \
     --build-arg "HF_REPO_CACHE=$HF_REPO_CACHE" \
     --build-arg "COMMIT_HASH=$COMMIT" \
+    --build-arg "GFX1103_HACK=$GFX1103_ARG" \
     -t "$IMAGE_TAG" \
     "$SCRIPT_DIR"
 
@@ -225,34 +250,42 @@ if $PUSH; then
     RUN_IMAGE="$REMOTE_TAG"
 fi
 
+# Helper: print device flags for the current backend
+print_device_flags() {
+    case "$GPU_BACKEND" in
+        cuda)
+            echo "      --device nvidia.com/gpu=all \\"
+            ;;
+        rocm)
+            echo "      --device /dev/kfd --device /dev/dri \\"
+            echo "      --security-opt seccomp=unconfined \\"
+            ;;
+        vulkan)
+            echo "      --device /dev/dri \\"
+            ;;
+    esac
+}
+
 echo ""
 echo "Run with:"
 echo ""
-case "$GPU_BACKEND" in
-    cuda)
-        echo "  $ENGINE run --rm -it \\"
-        echo "      --network host \\"
-        echo "      --device nvidia.com/gpu=all \\"
-        echo "      $RUN_IMAGE"
-        ;;
-    rocm)
-        echo "  $ENGINE run --rm -it \\"
-        echo "      --network host \\"
-        echo "      --device /dev/kfd --device /dev/dri \\"
-        echo "      --security-opt seccomp=unconfined \\"
-        echo "      $RUN_IMAGE"
-        ;;
-esac
+echo "  $ENGINE run --rm -it \\"
+echo "      --network host \\"
+print_device_flags
+echo "      $RUN_IMAGE"
 
 echo ""
 echo "Override settings with -e flags:"
 echo ""
 echo "  $ENGINE run --rm -it \\"
 echo "      --network host \\"
-case "$GPU_BACKEND" in
-    cuda) echo "      --device nvidia.com/gpu=all \\" ;;
-    rocm) echo "      --device /dev/kfd --device /dev/dri \\" ;;
-esac
+print_device_flags
 echo "      -e CTX_SIZE=48000 \\"
 echo "      -e PORT=9090 \\"
 echo "      $RUN_IMAGE"
+
+if $GFX1103_HACK; then
+    echo ""
+    echo "Note: gfx1103 workaround is baked in (HSA_OVERRIDE_GFX_VERSION=11.0.2)."
+    echo "If flash attention crashes, disable it with: -e FLASH_ATTN=off"
+fi

@@ -8,6 +8,15 @@
 
 set -euo pipefail
 
+# ── Source build-time environment (e.g. HSA_OVERRIDE_GFX_VERSION) ────────────
+
+if [[ -f /etc/environment ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source /etc/environment
+    set +a
+fi
+
 # ── Configuration ────────────────────────────────────────────────────────────
 
 HF_MODEL="${HF_MODEL:-__DEFAULT_MODEL__}"
@@ -22,6 +31,9 @@ TEMP="${TEMP:-1.0}"
 TOP_K="${TOP_K:-20}"
 TOP_P="${TOP_P:-0.95}"
 PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.5}"
+
+# Flash attention (default: on; set to "off" for iGPUs with fewer CUs)
+FLASH_ATTN="${FLASH_ATTN:-on}"
 
 # Reasoning / thinking
 REASONING="${REASONING:-on}"
@@ -38,7 +50,7 @@ args=(
     -c "$CTX_SIZE"
     -n "$N_PREDICT"
     -ngl "$N_GPU_LAYERS"
-    --flash-attn on
+    --flash-attn "$FLASH_ATTN"
     --temp "$TEMP"
     --top-k "$TOP_K"
     --top-p "$TOP_P"
@@ -59,9 +71,13 @@ fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-echo "Model:     $HF_MODEL"
-echo "Endpoint:  http://localhost:${PORT}"
-echo "Reasoning: $REASONING (budget: $REASONING_BUDGET tokens)"
+echo "Model:      $HF_MODEL"
+echo "Endpoint:   http://localhost:${PORT}"
+echo "Flash-Attn: $FLASH_ATTN"
+echo "Reasoning:  $REASONING (budget: $REASONING_BUDGET tokens)"
+if [[ -n "${HSA_OVERRIDE_GFX_VERSION:-}" ]]; then
+    echo "HSA GFX:    $HSA_OVERRIDE_GFX_VERSION (gfx1103 workaround)"
+fi
 echo ""
 
 # The upstream llama.cpp image places the binary at /app/llama-server.
