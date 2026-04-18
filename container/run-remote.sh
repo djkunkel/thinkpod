@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./run-remote.sh                                # interactive: pick from registry
-#   ./run-remote.sh qwen3.5-4b-q4_k_m-gfx1103     # run a specific tag directly
+#   ./run-remote.sh qwen3.5-4b-q4_k_m-vulkan       # run a specific tag directly
 #   ./run-remote.sh --list                         # just list available images
 #
 # First-time setup on the remote machine:
@@ -55,11 +55,10 @@ die()  { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 
 # Detect backend from a tag string.
-# Returns: cuda, rocm, gfx1103, vulkan, or unknown
+# Returns: cuda, rocm, vulkan, or unknown
 detect_backend() {
     local tag="$1"
     case "$tag" in
-        *-gfx1103) echo "gfx1103" ;;
         *-rocm)    echo "rocm" ;;
         *-cuda)    echo "cuda" ;;
         *-vulkan)  echo "vulkan" ;;
@@ -72,7 +71,6 @@ backend_label() {
     case "$1" in
         cuda)    echo "NVIDIA CUDA" ;;
         rocm)    echo "AMD ROCm (discrete GPU)" ;;
-        gfx1103) echo "AMD Radeon 780M/760M (gfx1103 workaround)" ;;
         vulkan)  echo "Vulkan (broad compatibility)" ;;
         *)       echo "unknown" ;;
     esac
@@ -84,7 +82,7 @@ device_flags() {
         cuda)
             echo "--device nvidia.com/gpu=all"
             ;;
-        rocm|gfx1103)
+        rocm)
             echo "--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined"
             ;;
         vulkan)

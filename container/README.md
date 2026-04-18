@@ -80,14 +80,11 @@ works out of the box -- no extra configuration needed at runtime.
 # AMD ROCm (discrete GPUs: RX 7000 series, R9700, etc.)
 ./build.sh --rocm
 
-# AMD Radeon 780M / 760M iGPU (gfx1103 ROCm workaround)
-./build.sh --gfx1103
-
 # Vulkan (broad compatibility: AMD iGPU, Intel, any Vulkan-capable GPU)
 ./build.sh --vulkan
 
 # Build and push to Gitea registry
-./build.sh --gfx1103 --push
+./build.sh --vulkan --push
 
 # Custom tag
 ./build.sh --tag my-llama:latest
@@ -108,9 +105,7 @@ base image but the same model files. Run `build.sh` once per backend you need.
 |---|---|---|
 | NVIDIA (any) | CUDA | `--cuda` (default) |
 | AMD discrete (RX 7000+, R9700) | ROCm | `--rocm` |
-| AMD Radeon 780M / 760M (gfx1103 iGPU) | ROCm + workaround | `--gfx1103` |
-| AMD iGPU (other / fallback) | Vulkan | `--vulkan` |
-| Intel | Vulkan | `--vulkan` |
+| AMD iGPU / Intel / broad compatibility | Vulkan | `--vulkan` |
 
 ## Running
 
@@ -131,29 +126,6 @@ podman run --rm -it \
     --device /dev/kfd --device /dev/dri \
     --security-opt seccomp=unconfined \
     llama-serve:qwen3.5-4b-q4_k_m-rocm
-```
-
-### AMD Radeon 780M / 760M (gfx1103)
-
-```sh
-podman run --rm -it \
-    --network host \
-    --device /dev/kfd --device /dev/dri \
-    --security-opt seccomp=unconfined \
-    llama-serve:qwen3.5-4b-q4_k_m-gfx1103
-```
-
-The gfx1103 workaround (`HSA_OVERRIDE_GFX_VERSION=11.0.2` and gfx1102 Tensile
-library symlinks) is baked into the image. If flash attention crashes on your
-hardware, disable it:
-
-```sh
-podman run --rm -it \
-    --network host \
-    --device /dev/kfd --device /dev/dri \
-    --security-opt seccomp=unconfined \
-    -e FLASH_ATTN=off \
-    llama-serve:qwen3.5-4b-q4_k_m-gfx1103
 ```
 
 ### Vulkan
@@ -210,7 +182,7 @@ All settings have defaults and can be overridden via `-e` flags at runtime:
 | `CTX_SIZE` | `100000` | Context window size in tokens |
 | `N_PREDICT` | `32768` | Max tokens to generate per request |
 | `N_GPU_LAYERS` | `999` | Layers to offload to GPU (999 = all) |
-| `FLASH_ATTN` | `on` | Flash attention: `on` or `off` (try `off` on gfx1103) |
+| `FLASH_ATTN` | `on` | Flash attention: `on` or `off` |
 | `TEMP` | `1.0` | Sampling temperature |
 | `TOP_K` | `20` | Top-K sampling |
 | `TOP_P` | `0.95` | Top-P (nucleus) sampling |
@@ -247,7 +219,7 @@ podman login tendi.lan:4200
 ./run-remote.sh --list
 
 # Run a specific tag directly
-./run-remote.sh qwen3.5-4b-q4_k_m-gfx1103
+./run-remote.sh qwen3.5-4b-q4_k_m-vulkan
 ```
 
 The script queries the OCI registry for available tags, detects the GPU backend
@@ -290,36 +262,6 @@ automatic mmproj detection, quantization tag matching, and split shard assembly.
 
 The entrypoint script mirrors `serve.sh`'s configuration interface, assembling
 the same llama-server flags from environment variables.
-
-## AMD Radeon 780M / 760M (gfx1103) workaround
-
-The Radeon 780M (gfx1103) is an RDNA3 iGPU found in AMD Ryzen 7000/8000 series
-APUs. ROCm does not officially support gfx1103 -- AMD does not ship rocBLAS
-TensileLibrary files for this arch, and the prebuilt llama.cpp HIP kernels
-don't target it either.
-
-The `--gfx1103` build flag applies the same workaround that makes Ollama work
-on this hardware:
-
-1. **Symlinks gfx1102 libraries as gfx1103** -- gfx1103 is ISA-compatible with
-   gfx1102 (RX 7600), so the Tensile kernel libraries work when symlinked.
-   This covers rocBLAS and hipBLASLt.
-
-2. **Sets `HSA_OVERRIDE_GFX_VERSION=11.0.2`** -- tells the HSA runtime to
-   report the GPU as gfx1102 rather than its native gfx1103. This is baked
-   into `/etc/environment` in the image and sourced by the entrypoint.
-
-3. **Configurable flash attention** -- the `FLASH_ATTN` env var (default: `on`)
-   can be set to `off` if the WMMA flash attention kernels crash. These kernels
-   were tuned for discrete RDNA3 CU counts; the 780M has fewer CUs and may
-   not be compatible even with the gfx1102 spoof.
-
-See [ggml-org/llama.cpp#20839](https://github.com/ggml-org/llama.cpp/issues/20839)
-for the upstream issue.
-
-If the gfx1103 ROCm workaround doesn't work for your hardware, use `--vulkan`
-instead. Vulkan works on all AMD GPUs via Mesa's RADV driver and doesn't depend
-on ROCm at all, though it may be slightly slower.
 
 ## Differences from serve.sh
 

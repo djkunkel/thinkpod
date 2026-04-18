@@ -32,7 +32,7 @@ TOP_K="${TOP_K:-20}"
 TOP_P="${TOP_P:-0.95}"
 PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.5}"
 
-# Flash attention (default: on; set to "off" for iGPUs with fewer CUs)
+# Flash attention (default: on)
 FLASH_ATTN="${FLASH_ATTN:-on}"
 
 # Reasoning / thinking
@@ -76,7 +76,7 @@ echo "Endpoint:   http://localhost:${PORT}"
 echo "Flash-Attn: $FLASH_ATTN"
 echo "Reasoning:  $REASONING (budget: $REASONING_BUDGET tokens)"
 if [[ -n "${HSA_OVERRIDE_GFX_VERSION:-}" ]]; then
-    echo "HSA GFX:    $HSA_OVERRIDE_GFX_VERSION (gfx1103 workaround)"
+    echo "HSA GFX:    $HSA_OVERRIDE_GFX_VERSION"
 fi
 echo ""
 
