@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Stage GGUF model files into container/models/ for the container build.
+# Stage GGUF model files into models/ for the container build.
 #
 # This script resolves model files from the host's HuggingFace hub cache. If
 # the requested files aren't cached yet, it downloads them first via the `hf`

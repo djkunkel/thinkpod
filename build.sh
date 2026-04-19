@@ -13,8 +13,8 @@
 #   ./build.sh --push --registry tendi.lan:4200/djkunkel  # explicit registry
 #
 # Prerequisites:
-#   - Models staged in container/models/ (run models.sh first, or let this
-#     script auto-stage the default model)
+#   - Models staged in models/ (run models.sh first, or let this script
+#     auto-stage the default model)
 #   - podman or docker
 
 set -euo pipefail

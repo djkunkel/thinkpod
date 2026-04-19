@@ -25,7 +25,7 @@ echo ""
 # Check server is up
 if ! curl -sf "$BASE_URL/health" > /dev/null 2>&1; then
     echo "error: server not responding at $BASE_URL/health" >&2
-    echo "       start the server first with ./serve.sh" >&2
+    echo "       start the server first with scripts/serve.sh" >&2
     exit 1
 fi
 
@@ -217,9 +217,9 @@ echo ""
 # ── Suggestions ──────────────────────────────────────────────────────────────
 
 echo "--- Tips ---"
-echo "  - If the test failed with OOM, reduce CTX_SIZE in serve.sh"
+echo "  - If the test failed with OOM, reduce CTX_SIZE in scripts/serve.sh"
 echo "  - To fit more context in VRAM, add KV cache quantization:"
-echo "      ./serve.sh <model> --cache-type-k q8_0 --cache-type-v q4_0"
+echo "      scripts/serve.sh <model> --cache-type-k q8_0 --cache-type-v q4_0"
 echo "  - Run with a higher fill ratio to push harder:"
 echo "      ./test-context.sh $PORT 0.95"
 echo ""
