@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Pull and run a llama-serve container image from the Gitea registry.
+# Pull and run a thinkpod container image from the Gitea registry.
 #
 # Queries the registry for available images, presents an interactive menu,
 # auto-detects the GPU backend from the tag, and runs with the correct
@@ -33,7 +33,7 @@ set -euo pipefail
 REGISTRY="${REGISTRY:-tendi.lan:4200/djkunkel}"
 GITEA_URL="${GITEA_URL:-http://tendi.lan:4200}"
 GITEA_USER="${GITEA_USER:-djkunkel}"
-IMAGE_NAME="llama-serve"
+IMAGE_NAME="thinkpod"
 ENGINE="${ENGINE:-}"
 
 # ── Detect container engine ──────────────────────────────────────────────────
@@ -270,7 +270,7 @@ run_image() {
     flags=$(device_flags "$backend")
 
     echo ""
-    info "starting llama-serve..."
+    info "starting thinkpod..."
     echo ""
 
     # shellcheck disable=SC2086
@@ -289,7 +289,7 @@ case "${1:-}" in
     --help|-h)
         echo "Usage: ./run-remote.sh [OPTIONS] [TAG]"
         echo ""
-        echo "Pull and run a llama-serve container from the Gitea registry."
+        echo "Pull and run a thinkpod container from the Gitea registry."
         echo ""
         echo "Commands:"
         echo "  (no args)       Interactive: pick from available images"

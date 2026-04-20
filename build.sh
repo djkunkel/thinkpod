@@ -298,7 +298,7 @@ if [[ -z "$IMAGE_TAG" ]]; then
 
     if [[ -n "$PROFILE" ]]; then
         # Profile name is the canonical image identity.
-        IMAGE_TAG="llama-serve:${PROFILE}-${tag_backend}"
+        IMAGE_TAG="thinkpod:${PROFILE}-${tag_backend}"
     else
         # No profile — derive a name from the HF repo + quantization.
         local_name="${REPO##*/}"            # Qwen3.5-4B-GGUF
@@ -317,9 +317,9 @@ if [[ -z "$IMAGE_TAG" ]]; then
         set +f
 
         if [[ -n "$quant" ]]; then
-            IMAGE_TAG="llama-serve:${local_name}-${quant}-${tag_backend}"
+            IMAGE_TAG="thinkpod:${local_name}-${quant}-${tag_backend}"
         else
-            IMAGE_TAG="llama-serve:${local_name}-${tag_backend}"
+            IMAGE_TAG="thinkpod:${local_name}-${tag_backend}"
         fi
     fi
 fi
@@ -346,7 +346,7 @@ echo ""
 # ── Push to registry (if requested) ──────────────────────────────────────────
 
 if $PUSH; then
-    # Extract just the image name and tag parts: llama-serve:tag
+    # Extract just the image name and tag parts: thinkpod:tag
     IMAGE_NAME="${IMAGE_TAG%%:*}"
     TAG_PART="${IMAGE_TAG#*:}"
     REMOTE_TAG="$REGISTRY/$IMAGE_NAME:$TAG_PART"

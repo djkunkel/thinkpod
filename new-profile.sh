@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Interactive profile generator for llama-serve.
+# Interactive profile generator for thinkpod.
 #
 # Queries the HuggingFace Hub API for model metadata, then walks you through
 # selecting a quantization, vision projector, context size, and other runtime
@@ -113,7 +113,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: ./new-profile.sh <repo> [--name <profile-name>]"
             echo ""
-            echo "Interactively create a model profile for llama-serve."
+            echo "Interactively create a model profile for thinkpod."
             echo ""
             echo "Arguments:"
             echo "  <repo>              HuggingFace repo (e.g. unsloth/Qwen3.5-4B-GGUF)"

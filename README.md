@@ -28,7 +28,7 @@ podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda
+    thinkpod:qwen3.5-4b-cuda
 ```
 
 The server is OpenAI API-compatible and works with Open WebUI, continue.dev,
@@ -180,7 +180,7 @@ podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda
+    thinkpod:qwen3.5-4b-cuda
 ```
 
 ### AMD ROCm (discrete)
@@ -191,7 +191,7 @@ podman run --rm -it \
     --device /dev/kfd --device /dev/dri \
     --security-opt seccomp=unconfined \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-rocm
+    thinkpod:qwen3.5-4b-rocm
 ```
 
 ### Vulkan
@@ -201,7 +201,7 @@ podman run --rm -it \
     --network host \
     --device /dev/dri \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-vulkan
+    thinkpod:qwen3.5-4b-vulkan
 ```
 
 ### With docker
@@ -210,7 +210,7 @@ podman run --rm -it \
 docker run --rm -it \
     --network host \
     --gpus all \
-    llama-serve:qwen3.5-4b-cuda
+    thinkpod:qwen3.5-4b-cuda
 ```
 
 ### Sharing images without a registry
@@ -220,7 +220,7 @@ The format is compatible between podman and docker in both directions.
 
 ```sh
 # Export
-podman save localhost/llama-serve:qwen3.5-9b-cuda | gzip > qwen3.5-9b-cuda.tar.gz
+podman save localhost/thinkpod:qwen3.5-9b-cuda | gzip > qwen3.5-9b-cuda.tar.gz
 
 # Load (podman or docker)
 podman load -i qwen3.5-9b-cuda.tar.gz
@@ -239,28 +239,28 @@ podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --ctx-size 8192
+    thinkpod:qwen3.5-4b-cuda -- --ctx-size 8192
 
 # Disable reasoning
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --reasoning off
+    thinkpod:qwen3.5-4b-cuda -- --reasoning off
 
 # Multiple overrides
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --ctx-size 8192 --reasoning off --temperature 0.7
+    thinkpod:qwen3.5-4b-cuda -- --ctx-size 8192 --reasoning off --temperature 0.7
 
 # Add extra llama-server flags not in the profile
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --cache-type-k q8_0 --cache-type-v q4_0
+    thinkpod:qwen3.5-4b-cuda -- --cache-type-k q8_0 --cache-type-v q4_0
 ```
 
 The entrypoint does **smart merging**: if you pass a flag that conflicts with
@@ -429,22 +429,22 @@ Override reasoning settings at runtime via `--` flags:
 # Larger budget
 podman run --rm -it --network host --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --reasoning-budget 8192
+    thinkpod:qwen3.5-4b-cuda -- --reasoning-budget 8192
 
 # Unlimited thinking (no budget)
 podman run --rm -it --network host --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --reasoning-budget -1
+    thinkpod:qwen3.5-4b-cuda -- --reasoning-budget -1
 
 # Disable thinking entirely
 podman run --rm -it --network host --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- --reasoning off
+    thinkpod:qwen3.5-4b-cuda -- --reasoning off
 
 # Custom budget message (nudge before forced cutoff)
 podman run --rm -it --network host --device nvidia.com/gpu=all \
     --security-opt label=disable \
-    llama-serve:qwen3.5-4b-cuda -- \
+    thinkpod:qwen3.5-4b-cuda -- \
     --reasoning-budget-message "Let me summarize and respond."
 ```
 
