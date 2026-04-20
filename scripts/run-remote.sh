@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 #
-# Pull and run a thinkpod container image from the Gitea registry.
+# Pull and run a thinkpod container image from an OCI registry.
 #
 # Queries the registry for available images, presents an interactive menu,
 # auto-detects the GPU backend from the tag, and runs with the correct
-# device flags.
+# device flags.  Works with any OCI-compliant registry (Gitea, GHCR,
+# Docker Hub, Quay, Harbor, etc.).
 #
 # Usage:
 #   ./run-remote.sh                                # interactive: pick from registry
 #   ./run-remote.sh qwen3.5-4b-q4_k_m-vulkan       # run a specific tag directly
 #   ./run-remote.sh --list                         # just list available images
+#   ./run-remote.sh -c 8192 TAG                    # override context length
+#   ./run-remote.sh --dry-run TAG                  # print the run command without executing
+#   ./run-remote.sh --registry host/org TAG        # use a different registry
 #
 # First-time setup on the remote machine:
-#   1. Configure insecure registry (if Gitea is plain HTTP):
+#   1. Configure insecure registry (if registry is plain HTTP):
 #        echo '[[registry]]
 #        location = "tendi.lan:4200"
 #        insecure = true' | sudo tee /etc/containers/registries.conf.d/tendi-gitea.conf
@@ -23,18 +27,16 @@
 # Environment:
 #   REGISTRY    Registry prefix (default: tendi.lan:4200/djkunkel)
 #   ENGINE      Container engine: podman or docker (auto-detected)
-#   GITEA_URL   Gitea API base URL (default: http://tendi.lan:4200)
-#   GITEA_USER  Gitea username for API queries (default: djkunkel)
 
 set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 REGISTRY="${REGISTRY:-tendi.lan:4200/djkunkel}"
-GITEA_URL="${GITEA_URL:-http://tendi.lan:4200}"
-GITEA_USER="${GITEA_USER:-djkunkel}"
 IMAGE_NAME="thinkpod"
 ENGINE="${ENGINE:-}"
+CONTEXT_SIZE=""
+DRY_RUN=false
 
 # ── Detect container engine ──────────────────────────────────────────────────
 
@@ -177,7 +179,7 @@ for tag in data.get('tags', []):
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 cmd_list() {
-    info "querying $GITEA_URL for available images..."
+    info "querying $REGISTRY for available images..."
     echo ""
 
     local tags=()
@@ -202,7 +204,7 @@ cmd_list() {
 }
 
 cmd_interactive() {
-    info "querying $GITEA_URL for available images..."
+    info "querying $REGISTRY for available images..."
 
     local tags=()
     while IFS= read -r tag; do
@@ -269,6 +271,21 @@ run_image() {
     local flags
     flags=$(device_flags "$backend")
 
+    # Container args (passed after the image name to override entrypoint defaults)
+    local container_args=""
+    if [[ -n "$CONTEXT_SIZE" ]]; then
+        container_args="-- -c $CONTEXT_SIZE"
+    fi
+
+    if $DRY_RUN; then
+        echo ""
+        info "dry-run: command that would be executed:"
+        echo ""
+        # shellcheck disable=SC2086
+        echo "$ENGINE run --rm -it --network host $flags $image $container_args"
+        return 0
+    fi
+
     echo ""
     info "starting thinkpod..."
     echo ""
@@ -277,19 +294,56 @@ run_image() {
     exec $ENGINE run --rm -it \
         --network host \
         $flags \
-        "$image"
+        "$image" $container_args
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-case "${1:-}" in
-    --list|-l)
+ACTION=""
+TAG=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --list|-l)
+            ACTION="list"
+            shift
+            ;;
+        --help|-h)
+            ACTION="help"
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --context|-c)
+            [[ -z "${2:-}" ]] && die "--context requires a value (e.g. -c 8192)"
+            CONTEXT_SIZE="$2"
+            shift 2
+            ;;
+        --registry)
+            [[ -z "${2:-}" ]] && die "--registry requires a value (e.g. --registry host/org)"
+            REGISTRY="$2"
+            shift 2
+            ;;
+        -*)
+            die "unknown option: $1 (try --help)"
+            ;;
+        *)
+            TAG="$1"
+            shift
+            ;;
+    esac
+done
+
+case "${ACTION:-}" in
+    list)
         cmd_list
         ;;
-    --help|-h)
+    help)
         echo "Usage: ./run-remote.sh [OPTIONS] [TAG]"
         echo ""
-        echo "Pull and run a thinkpod container from the Gitea registry."
+        echo "Pull and run a thinkpod container from an OCI registry."
         echo ""
         echo "Commands:"
         echo "  (no args)       Interactive: pick from available images"
@@ -297,14 +351,17 @@ case "${1:-}" in
         echo "  --list          List available images"
         echo "  --help          Show this help"
         echo ""
+        echo "Options:"
+        echo "  -c, --context SIZE   Override the model's default context length"
+        echo "  --dry-run            Print the run command without executing it"
+        echo "  --registry HOST/ORG  Registry prefix (default: tendi.lan:4200/djkunkel)"
+        echo ""
         echo "Environment:"
         echo "  REGISTRY    Registry prefix (default: tendi.lan:4200/djkunkel)"
         echo "  ENGINE      Container engine: podman or docker (auto-detected)"
-        echo "  GITEA_URL   Gitea API URL (default: http://tendi.lan:4200)"
-        echo "  GITEA_USER  Gitea username (default: djkunkel)"
         echo ""
         echo "First-time setup:"
-        echo "  1. Configure insecure registry (plain HTTP Gitea):"
+        echo "  1. Configure insecure registry (if registry is plain HTTP):"
         echo "       echo '[[registry]]"
         echo "       location = \"tendi.lan:4200\""
         echo "       insecure = true' | sudo tee /etc/containers/registries.conf.d/tendi-gitea.conf"
@@ -313,12 +370,10 @@ case "${1:-}" in
         echo "       podman login tendi.lan:4200"
         ;;
     "")
-        cmd_interactive
-        ;;
-    -*)
-        die "unknown option: $1 (try --help)"
-        ;;
-    *)
-        cmd_direct "$1"
+        if [[ -n "$TAG" ]]; then
+            cmd_direct "$TAG"
+        else
+            cmd_interactive
+        fi
         ;;
 esac
