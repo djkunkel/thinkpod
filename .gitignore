@@ -2,5 +2,8 @@
 models/*.gguf
 models/MANIFEST
 
+# Generated at build time by build.sh (baked into image, then deleted)
+defaults.conf
+
 # Build artifacts
 !models/.gitkeep

@@ -225,6 +225,7 @@ cmd_clean() {
 
 cmd_stage() {
     local force_download=false
+    local profile=""
     local repo=""
     local files=()
 
@@ -232,6 +233,7 @@ cmd_stage() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --download) force_download=true; shift ;;
+            --profile)  profile="$2"; shift 2 ;;
             *)
                 if [[ -z "$repo" && "$1" == */* ]]; then
                     repo="$1"
@@ -243,7 +245,25 @@ cmd_stage() {
         esac
     done
 
-    # Apply defaults
+    # Load profile if specified
+    if [[ -n "$profile" ]]; then
+        local profile_file="$SCRIPT_DIR/profiles/${profile}.sh"
+        if [[ ! -f "$profile_file" ]]; then
+            die "profile not found: $profile_file"
+        fi
+        # Source the profile — sets REPO, FILES, and optionally DEFAULTS
+        # shellcheck source=/dev/null
+        source "$profile_file"
+        # Profile REPO/FILES become our defaults (CLI args still override)
+        if [[ -z "$repo" ]]; then
+            repo="$REPO"
+        fi
+        if [[ ${#files[@]} -eq 0 ]]; then
+            files=("${FILES[@]}")
+        fi
+    fi
+
+    # Apply built-in defaults if nothing specified
     if [[ -z "$repo" ]]; then
         repo="$DEFAULT_REPO"
     fi
@@ -369,14 +389,16 @@ case "${1:-}" in
         echo "Stage GGUF model files for the container build."
         echo ""
         echo "Commands:"
-        echo "  --list          List GGUF models in the HF cache"
-        echo "  --clean         Remove all staged model files"
-        echo "  --help          Show this help"
+        echo "  --list              List GGUF models in the HF cache"
+        echo "  --clean             Remove all staged model files"
+        echo "  --help              Show this help"
         echo ""
         echo "Options:"
-        echo "  --download      Force download even if files are cached"
+        echo "  --profile NAME      Use a model profile from profiles/<NAME>.sh"
+        echo "  --download          Force download even if files are cached"
         echo ""
         echo "Examples:"
+        echo "  ./models.sh --profile qwen3.5-4b                    # use a profile"
         echo "  ./models.sh                                         # default model"
         echo "  ./models.sh unsloth/Qwen3.5-4B-GGUF                # all GGUFs in repo"
         echo "  ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf"

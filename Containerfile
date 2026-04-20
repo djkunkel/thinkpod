@@ -29,7 +29,8 @@ RUN mkdir -p "/root/.cache/huggingface/hub/${HF_REPO_CACHE}/refs" \
 # quantization tag and detect mmproj files by name.
 COPY models/*.gguf "/root/.cache/huggingface/hub/${HF_REPO_CACHE}/snapshots/${COMMIT_HASH}/"
 
-# Copy the entrypoint and patch in the default model name
+# Copy runtime defaults and entrypoint, patch in the default model name
+COPY defaults.conf /defaults.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && sed -i "s|__DEFAULT_MODEL__|${HF_REPO}|g" /entrypoint.sh

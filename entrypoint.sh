@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 #
-# Container entrypoint for llama-server. Mirrors the env var interface from
-# serve.sh so the container is a drop-in replacement.
+# Container entrypoint for llama-server.
 #
-# All settings have defaults and can be overridden via environment variables
-# or by passing extra flags after the container command.
+# Runtime defaults are read from /defaults.conf (baked in at build time from
+# the model profile).  Any flag passed after "--" in the podman/docker run
+# command overrides the corresponding default.
+#
+#   podman run ... $IMAGE                          # all defaults
+#   podman run ... $IMAGE -- -c 8192               # override context size
+#   podman run ... $IMAGE -- --reasoning off        # disable reasoning
+#
+# The entrypoint handles smart merging: if you pass a flag that conflicts
+# with a default, only your version is used (no duplicates).
 
 set -euo pipefail
 
@@ -17,68 +24,98 @@ if [[ -f /etc/environment ]]; then
     set +a
 fi
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# ── Model (patched at build time by Containerfile) ───────────────────────────
 
-HF_MODEL="${HF_MODEL:-__DEFAULT_MODEL__}"
-HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8080}"
-CTX_SIZE="${CTX_SIZE:-100000}"
-N_PREDICT="${N_PREDICT:-32768}"
-N_GPU_LAYERS="${N_GPU_LAYERS:-999}"
+HF_MODEL="__DEFAULT_MODEL__"
 
-# Sampling
-TEMP="${TEMP:-1.0}"
-TOP_K="${TOP_K:-20}"
-TOP_P="${TOP_P:-0.95}"
-PRESENCE_PENALTY="${PRESENCE_PENALTY:-1.5}"
+# ── Read defaults from /defaults.conf ────────────────────────────────────────
 
-# Flash attention (default: on)
-FLASH_ATTN="${FLASH_ATTN:-on}"
+# Each line is a flag group: "-c 131072" or "--flash-attn on"
+# Lines starting with # are comments.
+default_flags=()
+default_flag_names=()
 
-# Reasoning / thinking
-REASONING="${REASONING:-on}"
-REASONING_BUDGET="${REASONING_BUDGET:-4096}"
-REASONING_BUDGET_MSG="${REASONING_BUDGET_MSG:-$(printf '\n\nOkay, I need to stop thinking and give my response now.\n')}"
+if [[ -f /defaults.conf ]]; then
+    while IFS= read -r line; do
+        # Skip comments and blank lines
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # Extract the flag name (first token)
+        flag_name="${line%% *}"
+        default_flags+=("$line")
+        default_flag_names+=("$flag_name")
+    done < /defaults.conf
+fi
 
-# ── Build the command ────────────────────────────────────────────────────────
+# ── Parse user-supplied flags from $@ ────────────────────────────────────────
 
+# Collect all flag names the user passed so we can skip those defaults.
+user_flag_names=()
+for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+        user_flag_names+=("$arg")
+    fi
+done
+
+# ── Build the final argument list ────────────────────────────────────────────
+
+# Infrastructure flags — always present (container needs these)
 args=(
     -hf "$HF_MODEL"
     --offline
-    --host "$HOST"
-    --port "$PORT"
-    -c "$CTX_SIZE"
-    -n "$N_PREDICT"
-    -ngl "$N_GPU_LAYERS"
-    --flash-attn "$FLASH_ATTN"
-    --temp "$TEMP"
-    --top-k "$TOP_K"
-    --top-p "$TOP_P"
-    --presence-penalty "$PRESENCE_PENALTY"
-    --reasoning "$REASONING"
-    --reasoning-budget "$REASONING_BUDGET"
+    --host 0.0.0.0
+    --port 8080
     --metrics
 )
 
-if [[ -n "$REASONING_BUDGET_MSG" ]]; then
-    args+=(--reasoning-budget-message "$REASONING_BUDGET_MSG")
-fi
+# Add defaults, skipping any that the user overrode
+for i in "${!default_flags[@]}"; do
+    flag_name="${default_flag_names[$i]}"
 
-# Append any extra flags passed to the container
+    # Check if user supplied this flag
+    skip=false
+    for uf in "${user_flag_names[@]}"; do
+        if [[ "$uf" == "$flag_name" ]]; then
+            skip=true
+            break
+        fi
+    done
+
+    if ! $skip; then
+        # Split the line back into flag + value(s)
+        # shellcheck disable=SC2086
+        args+=(${default_flags[$i]})
+    fi
+done
+
+# Append user flags last
 if [[ $# -gt 0 ]]; then
     args+=("$@")
 fi
 
-# ── Run ──────────────────────────────────────────────────────────────────────
+# ── Print banner ─────────────────────────────────────────────────────────────
 
-echo "Model:      $HF_MODEL"
-echo "Endpoint:   http://localhost:${PORT}"
-echo "Flash-Attn: $FLASH_ATTN"
-echo "Reasoning:  $REASONING (budget: $REASONING_BUDGET tokens)"
+echo "Model:    $HF_MODEL"
+echo "Endpoint: http://localhost:8080"
+
+# Show key settings from the final args
+for i in "${!args[@]}"; do
+    case "${args[$i]}" in
+        -c)             echo "Context:  ${args[$((i+1))]:-(unset)}" ;;
+        --flash-attn)   echo "Flash:    ${args[$((i+1))]:-(unset)}" ;;
+        --reasoning)    echo "Reason:   ${args[$((i+1))]:-(unset)}" ;;
+    esac
+done
+
 if [[ -n "${HSA_OVERRIDE_GFX_VERSION:-}" ]]; then
-    echo "HSA GFX:    $HSA_OVERRIDE_GFX_VERSION"
+    echo "HSA GFX:  $HSA_OVERRIDE_GFX_VERSION"
+fi
+
+if [[ $# -gt 0 ]]; then
+    echo "Overrides: $*"
 fi
 echo ""
+
+# ── Run ──────────────────────────────────────────────────────────────────────
 
 # The upstream llama.cpp image places the binary at /app/llama-server.
 # Try the PATH first, fall back to /app/llama-server.

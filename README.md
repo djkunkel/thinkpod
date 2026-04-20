@@ -20,13 +20,10 @@ podman run --rm --device nvidia.com/gpu=all ubuntu nvidia-smi
 ## Quick start
 
 ```sh
-# 1. Stage models (copies from HF cache, or downloads if not cached)
-./models.sh
+# 1. Build with the default profile
+./build.sh --profile qwen3.5-4b --cuda
 
-# 2. Build the image
-./build.sh
-
-# 3. Run it
+# 2. Run it
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
@@ -42,12 +39,61 @@ or any client that speaks the `/v1/chat/completions` protocol.
 |---|---|
 | `build.sh` | Build a container image with models baked in |
 | `models.sh` | Stage model files from HF cache or download from Hub |
+| `new-profile.sh` | Interactive profile generator (queries HF Hub) |
 | `Containerfile` | Image definition (used by build.sh) |
 | `entrypoint.sh` | Runtime entrypoint (copied into the image) |
+| `profiles/` | Model profiles (repo, files, runtime defaults) |
 | `models/` | Staging directory for GGUF files (gitignored) |
 | `scripts/serve.sh` | Direct serving via bind-mounted HF cache (no build needed) |
 | `scripts/test-context.sh` | Context window stress test (needle-in-haystack) |
 | `scripts/run-remote.sh` | Pull and run images from a Gitea registry on remote machines |
+
+## Model profiles
+
+Profiles define which model to build and its runtime defaults. Each profile is
+a shell file in `profiles/` containing the HF repo, file list, and default
+llama-server flags.
+
+### Creating a profile
+
+Use the interactive generator — it queries HuggingFace for available
+quantizations, detects vision/reasoning support, and writes the profile:
+
+```sh
+./new-profile.sh unsloth/Qwen3.5-4B-GGUF
+```
+
+It walks you through:
+- Picking a quantization (recommends Q4_K_M)
+- Including vision projector files (auto-detected)
+- Setting context size (caps at a reasonable default)
+- Enabling reasoning (auto-detected from chat template)
+
+### Profile format
+
+```sh
+# profiles/qwen3.5-4b.sh
+REPO="unsloth/Qwen3.5-4B-GGUF"
+FILES=("Qwen3.5-4B-Q4_K_M.gguf" "mmproj-F16.gguf")
+
+DEFAULTS=(
+    -c 131072
+    -n 32768
+    -ngl 999
+    --flash-attn on
+    --reasoning on
+    --reasoning-budget 4096
+)
+```
+
+The `DEFAULTS` array contains native llama-server flags that get baked into the
+image. They can be overridden at runtime (see [Runtime overrides](#runtime-overrides)).
+
+### Listing available profiles
+
+```sh
+ls profiles/
+```
 
 ## Staging models
 
@@ -55,10 +101,10 @@ or any client that speaks the `/v1/chat/completions` protocol.
 host's HuggingFace cache first and falls back to downloading via the `hf` CLI.
 
 ```sh
-# Default model (Qwen3.5-4B Q4_K_M + mmproj for vision)
-./models.sh
+# Stage using a profile
+./models.sh --profile qwen3.5-4b
 
-# Specific repo and files
+# Manual: specific repo and files
 ./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf mmproj-F16.gguf
 
 # Just the repo (auto-discovers all GGUFs)
@@ -77,13 +123,10 @@ host's HuggingFace cache first and falls back to downloading via the `hf` CLI.
 ### Multimodal / vision models
 
 For models with vision support (like Qwen3.5-4B), include the mmproj file
-when staging. The default model stages it automatically:
+when staging. Profiles handle this automatically. For manual staging:
 
 ```sh
-# Both files staged by default:
-#   Qwen3.5-4B-Q4_K_M.gguf   (model weights)
-#   mmproj-F16.gguf           (vision projector)
-./models.sh
+./models.sh unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf mmproj-F16.gguf
 ```
 
 llama-server's `-hf` flag auto-detects mmproj files by filename, so vision
@@ -91,26 +134,27 @@ works out of the box -- no extra configuration needed at runtime.
 
 ## Building
 
+A GPU backend flag is **required** — there is no default:
+
 ```sh
-# NVIDIA CUDA (default)
-./build.sh
+# With a profile (recommended)
+./build.sh --profile qwen3.5-4b --cuda
+./build.sh --profile qwen3.5-4b --rocm
+./build.sh --profile qwen3.5-4b --vulkan
 
-# AMD ROCm (discrete GPUs: RX 7000 series, R9700, etc.)
-./build.sh --rocm
-
-# Vulkan (broad compatibility: AMD iGPU, Intel, any Vulkan-capable GPU)
-./build.sh --vulkan
+# Without a profile (uses whatever is in models/)
+./build.sh --cuda
 
 # Build and push to Gitea registry
-./build.sh --vulkan --push
+./build.sh --profile qwen3.5-4b --cuda --push
 
 # Custom tag
-./build.sh --tag my-llama:latest
+./build.sh --profile qwen3.5-4b --cuda --tag my-llama:latest
 
 # Use docker instead of podman
-./build.sh --engine docker
+./build.sh --profile qwen3.5-4b --cuda --engine docker
 
-# Custom base image
+# Custom base image (backend flag not needed)
 ./build.sh --base-image ghcr.io/ggml-org/llama.cpp:server-cuda13-b9000
 ```
 
@@ -121,7 +165,7 @@ base image but the same model files. Run `build.sh` once per backend you need.
 
 | GPU | Backend | Flag |
 |---|---|---|
-| NVIDIA (any) | CUDA | `--cuda` (default) |
+| NVIDIA (any) | CUDA | `--cuda` |
 | AMD discrete (RX 7000+, R9700) | ROCm | `--rocm` |
 | AMD iGPU / Intel / broad compatibility | Vulkan | `--vulkan` |
 
@@ -164,54 +208,67 @@ docker run --rm -it \
     llama-serve:qwen3.5-4b-q4_k_m-cuda
 ```
 
-### Override settings at runtime
+### Runtime overrides
 
-All settings can be overridden via environment variables:
+Each image has runtime defaults baked in from the profile (context size,
+reasoning, sampling params, etc.). Override any of them by passing native
+llama-server flags after `--`:
 
 ```sh
+# Override context size
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    -e CTX_SIZE=48000 \
-    -e PORT=9090 \
-    -e REASONING_BUDGET=8192 \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
-```
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- -c 8192
 
-### Pass extra llama-server flags
-
-```sh
+# Disable reasoning
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda \
-    --cache-type-k q8_0 --cache-type-v q4_0
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning off
+
+# Multiple overrides
+podman run --rm -it \
+    --network host \
+    --device nvidia.com/gpu=all \
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- -c 8192 --reasoning off --temp 0.7
+
+# Add extra llama-server flags not in the profile
+podman run --rm -it \
+    --network host \
+    --device nvidia.com/gpu=all \
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --cache-type-k q8_0 --cache-type-v q4_0
 ```
 
-## Configuration
+The entrypoint does **smart merging**: if you pass a flag that conflicts with
+a default, only your version is used (no duplicate flags). Flags you don't
+override keep their profile defaults.
 
-All settings have defaults and can be overridden via `-e` flags at runtime:
+### Infrastructure flags (always set)
 
-| Variable | Default | Description |
+These are hardcoded in the entrypoint and not part of the profile:
+
+| Flag | Value | Why |
 |---|---|---|
-| `HF_MODEL` | *(baked-in repo)* | HuggingFace repo for `-hf` flag |
-| `HOST` | `0.0.0.0` | Listen address |
-| `PORT` | `8080` | Listen port |
-| `CTX_SIZE` | `100000` | Context window size in tokens |
-| `N_PREDICT` | `32768` | Max tokens to generate per request |
-| `N_GPU_LAYERS` | `999` | Layers to offload to GPU (999 = all) |
-| `FLASH_ATTN` | `on` | Flash attention: `on` or `off` |
-| `TEMP` | `1.0` | Sampling temperature |
-| `TOP_K` | `20` | Top-K sampling |
-| `TOP_P` | `0.95` | Top-P (nucleus) sampling |
-| `PRESENCE_PENALTY` | `1.5` | Presence penalty |
-| `REASONING` | `on` | Reasoning mode: `on`, `off`, or `auto` |
-| `REASONING_BUDGET` | `4096` | Max thinking tokens before forced cutoff |
-| `REASONING_BUDGET_MSG` | *(graceful wrap-up)* | Message injected at budget cutoff |
+| `-hf` | *(baked-in repo)* | Model identity |
+| `--offline` | | No network access needed |
+| `--host` | `0.0.0.0` | Required inside containers |
+| `--port` | `8080` | Standard port |
+| `--metrics` | | Prometheus endpoint |
 
 ## Swapping models
 
-To build an image with a different model:
+Create a new profile and build:
+
+```sh
+# 1. Create a profile (interactive — picks quant, detects vision/reasoning)
+./new-profile.sh ggml-org/gemma-3-1b-it-GGUF
+
+# 2. Build with the new profile
+./build.sh --profile gemma-3-1b-it --cuda
+```
+
+Or manually:
 
 ```sh
 # 1. Clean old staged files
@@ -221,7 +278,7 @@ To build an image with a different model:
 ./models.sh ggml-org/gemma-3-1b-it-GGUF
 
 # 3. Rebuild
-./build.sh
+./build.sh --cuda
 ```
 
 Each image contains one model. This keeps images focused and avoids multi-GB
@@ -278,8 +335,10 @@ This allows `llama-server -hf org/name --offline` to resolve the model exactly
 as it does with a bind-mounted HF cache. The `-hf` flag handles automatic
 mmproj detection, quantization tag matching, and split shard assembly.
 
-The entrypoint script assembles llama-server flags from environment variables,
-mirroring the same configuration interface across all run methods.
+The entrypoint reads runtime defaults from `/defaults.conf` (baked in from the
+model profile at build time) and merges them with any flags passed at `podman
+run` time. User-supplied flags override profile defaults cleanly — no
+duplicate flags, no environment variables needed.
 
 ## scripts/
 
@@ -334,33 +393,25 @@ response (separate from `content`), compatible with the OpenAI reasoning API.
 The `--reasoning-budget` flag sets a hard token limit on thinking. When
 exceeded, the server forcibly injects `</think>` to end the thinking phase.
 
-**Without a budget message**, this abrupt cutoff often causes the model to leak
-partial thoughts and raw `</think>` tags into the visible response.
-
-**The fix**: `--reasoning-budget-message` injects a natural-language nudge just
-before the forced `</think>`, giving the model a cue to wrap up cleanly:
-
-```
-\n\nOkay, I need to stop thinking and give my response now.\n
-```
-
-This is set by default. You can customize it at runtime:
+Override reasoning settings at runtime via `--` flags:
 
 ```sh
-# Custom message
+# Larger budget
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    -e REASONING_BUDGET_MSG="Let me summarize and respond." \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning-budget 8192
 
 # Unlimited thinking (no budget)
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    -e REASONING_BUDGET=-1 \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning-budget -1
 
 # Disable thinking entirely
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    -e REASONING=off \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning off
+
+# Custom budget message (nudge before forced cutoff)
+podman run --rm -it --network host --device nvidia.com/gpu=all \
+    llama-serve:qwen3.5-4b-q4_k_m-cuda -- \
+    --reasoning-budget-message "Let me summarize and respond."
 ```
 
 ### Per-request control

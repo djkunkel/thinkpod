@@ -3,18 +3,19 @@
 # Build a self-contained llama-server container image with models baked in.
 #
 # Usage:
-#   ./build.sh                     # build with default CUDA base + staged models
-#   ./build.sh --rocm              # build with ROCm base (AMD discrete GPUs)
-#   ./build.sh --vulkan            # build with Vulkan base (AMD iGPU/Intel/broad compat)
-#   ./build.sh --tag my-llama:v1   # custom image tag
-#   ./build.sh --skip-stage        # skip auto-staging (models/ must be populated)
-#   ./build.sh --engine docker     # use docker instead of podman
-#   ./build.sh --push              # build and push to container registry
-#   ./build.sh --push --registry tendi.lan:4200/djkunkel  # explicit registry
+#   ./build.sh --cuda                                # NVIDIA GPU (required: pick a backend)
+#   ./build.sh --rocm                                # AMD discrete GPU
+#   ./build.sh --vulkan                              # Vulkan (AMD iGPU, Intel, broad compat)
+#   ./build.sh --profile qwen3.5-4b --cuda           # use a model profile
+#   ./build.sh --cuda --tag my-llama:v1              # custom image tag
+#   ./build.sh --cuda --skip-stage                   # skip auto-staging
+#   ./build.sh --cuda --push                         # build and push to registry
+#   ./build.sh --cuda --push --registry host/org     # explicit registry
 #
 # Prerequisites:
+#   - A GPU backend flag (--cuda, --rocm, or --vulkan)
 #   - Models staged in models/ (run models.sh first, or let this script
-#     auto-stage the default model)
+#     auto-stage via --profile or defaults)
 #   - podman or docker
 
 set -euo pipefail
@@ -22,6 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="$SCRIPT_DIR/models"
 MANIFEST="$MODELS_DIR/MANIFEST"
+DEFAULTS_FILE="$SCRIPT_DIR/defaults.conf"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -29,12 +31,27 @@ BASE_IMAGE_CUDA="ghcr.io/ggml-org/llama.cpp:server-cuda13"
 BASE_IMAGE_ROCM="ghcr.io/ggml-org/llama.cpp:server-rocm"
 BASE_IMAGE_VULKAN="ghcr.io/ggml-org/llama.cpp:server-vulkan"
 BASE_IMAGE=""
-GPU_BACKEND="cuda"
+GPU_BACKEND=""
 IMAGE_TAG=""
 SKIP_STAGE=false
 ENGINE=""
 PUSH=false
 REGISTRY="tendi.lan:4200/djkunkel"
+PROFILE=""
+
+# Fallback runtime defaults (used when no profile is specified)
+FALLBACK_DEFAULTS=(
+    -c 131072
+    -n 32768
+    -ngl 999
+    --flash-attn on
+    --temp 1.0
+    --top-k 20
+    --top-p 0.95
+    --presence-penalty 1.5
+    --reasoning on
+    --reasoning-budget 4096
+)
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 
@@ -43,6 +60,7 @@ while [[ $# -gt 0 ]]; do
         --rocm)       GPU_BACKEND="rocm"; shift ;;
         --cuda)       GPU_BACKEND="cuda"; shift ;;
         --vulkan)     GPU_BACKEND="vulkan"; shift ;;
+        --profile)    PROFILE="$2"; shift 2 ;;
         --tag)        IMAGE_TAG="$2"; shift 2 ;;
         --skip-stage) SKIP_STAGE=true; shift ;;
         --engine)     ENGINE="$2"; shift 2 ;;
@@ -50,21 +68,32 @@ while [[ $# -gt 0 ]]; do
         --push)       PUSH=true; shift ;;
         --registry)   REGISTRY="$2"; shift 2 ;;
         --help|-h)
-            echo "Usage: ./build.sh [OPTIONS]"
+            echo "Usage: ./build.sh --cuda|--rocm|--vulkan [OPTIONS]"
             echo ""
             echo "Build a self-contained llama-server container image."
             echo ""
+            echo "Backend (required — pick one):"
+            echo "  --cuda              NVIDIA GPUs"
+            echo "  --rocm              AMD discrete GPUs"
+            echo "  --vulkan            Vulkan (AMD iGPU, Intel, broad compat)"
+            echo ""
             echo "Options:"
-            echo "  --cuda          Use CUDA base image (default, NVIDIA GPUs)"
-            echo "  --rocm          Use ROCm base image (AMD discrete GPUs)"
-            echo "  --vulkan        Use Vulkan base image (AMD iGPU, Intel, broad compat)"
-            echo "  --base-image X  Override the base image entirely"
-            echo "  --tag TAG       Custom image tag (default: auto-generated)"
-            echo "  --skip-stage    Don't auto-stage models (models/ must exist)"
-            echo "  --engine CMD    Container engine: podman or docker (auto-detected)"
-            echo "  --push          Push image to container registry after building"
-            echo "  --registry URL  Registry prefix (default: tendi.lan:4200/djkunkel)"
-            echo "  --help          Show this help"
+            echo "  --profile NAME      Use a model profile from profiles/<NAME>.sh"
+            echo "  --base-image IMG    Override the base image entirely"
+            echo "  --tag TAG           Custom image tag (default: auto-generated)"
+            echo "  --skip-stage        Don't auto-stage models (models/ must exist)"
+            echo "  --engine CMD        Container engine: podman or docker (auto-detected)"
+            echo "  --push              Push image to container registry after building"
+            echo "  --registry URL      Registry prefix (default: tendi.lan:4200/djkunkel)"
+            echo "  --help              Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  ./build.sh --profile qwen3.5-4b --cuda"
+            echo "  ./build.sh --rocm --tag my-model:latest"
+            echo "  ./build.sh --cuda --push"
+            echo ""
+            echo "Create a new profile:"
+            echo "  ./new-profile.sh unsloth/Qwen3.5-4B-GGUF"
             exit 0
             ;;
         *)
@@ -74,6 +103,50 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ── Require a GPU backend ────────────────────────────────────────────────────
+
+if [[ -z "$GPU_BACKEND" && -z "$BASE_IMAGE" ]]; then
+    echo "error: GPU backend is required. Specify --cuda, --rocm, or --vulkan" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  ./build.sh --cuda                            # NVIDIA" >&2
+    echo "  ./build.sh --rocm                            # AMD discrete" >&2
+    echo "  ./build.sh --vulkan                          # Vulkan" >&2
+    echo "  ./build.sh --profile qwen3.5-4b --cuda       # with a profile" >&2
+    echo "" >&2
+    echo "Run ./build.sh --help for full usage" >&2
+    exit 1
+fi
+
+# ── Load profile (if specified) ──────────────────────────────────────────────
+
+# DEFAULTS will hold the runtime defaults to bake into the image.
+DEFAULTS=()
+
+if [[ -n "$PROFILE" ]]; then
+    PROFILE_FILE="$SCRIPT_DIR/profiles/${PROFILE}.sh"
+    if [[ ! -f "$PROFILE_FILE" ]]; then
+        echo "error: profile not found: $PROFILE_FILE" >&2
+        echo "" >&2
+        echo "Available profiles:" >&2
+        for p in "$SCRIPT_DIR"/profiles/*.sh; do
+            [[ -f "$p" ]] && echo "  $(basename "${p%.sh}")" >&2
+        done
+        exit 1
+    fi
+
+    echo "==> profile: $PROFILE"
+
+    # Source the profile — may set REPO, FILES, DEFAULTS
+    # shellcheck source=/dev/null
+    source "$PROFILE_FILE"
+fi
+
+# If no profile or profile didn't set DEFAULTS, use fallback
+if [[ ${#DEFAULTS[@]} -eq 0 ]]; then
+    DEFAULTS=("${FALLBACK_DEFAULTS[@]}")
+fi
 
 # ── Detect container engine ──────────────────────────────────────────────────
 
@@ -102,17 +175,40 @@ if [[ -z "$BASE_IMAGE" ]]; then
 fi
 
 echo "==> base image: $BASE_IMAGE"
-echo "==> GPU backend: $GPU_BACKEND"
+echo "==> GPU backend: ${GPU_BACKEND:-custom}"
 
 # ── Auto-stage models if needed ──────────────────────────────────────────────
 
 gguf_count=$(find "$MODELS_DIR" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)
+need_stage=false
 
-if [[ "$gguf_count" -eq 0 ]] && ! $SKIP_STAGE; then
-    echo "==> no models staged, running models.sh with defaults..."
-    "$SCRIPT_DIR/models.sh"
+if [[ "$gguf_count" -eq 0 ]]; then
+    need_stage=true
+elif [[ -n "$PROFILE" && -f "$MANIFEST" ]]; then
+    # Check if staged model matches the requested profile
+    MANIFEST_REPO=""
+    # shellcheck source=/dev/null
+    source "$MANIFEST"
+    MANIFEST_REPO="$REPO"
+    # Re-source the profile to restore REPO (MANIFEST source overwrites it)
+    # shellcheck source=/dev/null
+    source "$PROFILE_FILE"
+    if [[ "$MANIFEST_REPO" != "$REPO" ]]; then
+        echo "==> staged model ($MANIFEST_REPO) doesn't match profile ($REPO)"
+        need_stage=true
+    fi
+fi
+
+if $need_stage && ! $SKIP_STAGE; then
+    if [[ -n "$PROFILE" ]]; then
+        echo "==> staging model for profile: $PROFILE..."
+        "$SCRIPT_DIR/models.sh" --profile "$PROFILE"
+    else
+        echo "==> no models staged, running models.sh with defaults..."
+        "$SCRIPT_DIR/models.sh"
+    fi
     echo ""
-elif [[ "$gguf_count" -eq 0 ]] && $SKIP_STAGE; then
+elif $need_stage && $SKIP_STAGE; then
     echo "error: no .gguf files in $MODELS_DIR" >&2
     echo "       Run ./models.sh first to stage model files" >&2
     exit 1
@@ -149,11 +245,33 @@ echo "==> repo: $REPO"
 echo "==> commit: ${COMMIT:0:12}..."
 echo "==> files: $FILES"
 
+# ── Generate defaults.conf ───────────────────────────────────────────────────
+
+# Write the runtime defaults as a file that gets baked into the image.
+# One flag-group per line (flag + value on the same line).
+{
+    echo "# Runtime defaults — generated by build.sh"
+    echo "# Profile: ${PROFILE:-none}"
+
+    local_i=0
+    while (( local_i < ${#DEFAULTS[@]} )); do
+        flag="${DEFAULTS[$local_i]}"
+        # Check if next element is a value (not a flag)
+        if (( local_i + 1 < ${#DEFAULTS[@]} )) && [[ "${DEFAULTS[$((local_i + 1))]}" != -* ]]; then
+            echo "$flag ${DEFAULTS[$((local_i + 1))]}"
+            local_i=$((local_i + 2))
+        else
+            echo "$flag"
+            local_i=$((local_i + 1))
+        fi
+    done
+} > "$DEFAULTS_FILE"
+
+echo "==> defaults: $DEFAULTS_FILE"
+
 # ── Compute build args ───────────────────────────────────────────────────────
 
 # Convert repo name to HF cache directory name: org/name → models--org--name
-HF_REPO_CACHE="models--${REPO//\//__}"
-# HF uses -- not __
 HF_REPO_CACHE="models--${REPO//\//--}"
 
 echo "==> cache dir: $HF_REPO_CACHE"
@@ -175,7 +293,7 @@ if [[ -z "$IMAGE_TAG" ]]; then
         fi
     done
 
-    tag_backend="$GPU_BACKEND"
+    tag_backend="${GPU_BACKEND:-custom}"
 
     if [[ -n "$quant" ]]; then
         IMAGE_TAG="llama-serve:${local_name}-${quant}-${tag_backend}"
@@ -202,6 +320,10 @@ $ENGINE build \
 echo ""
 echo "==> build complete: $IMAGE_TAG"
 echo ""
+
+# ── Clean up generated defaults.conf ─────────────────────────────────────────
+
+rm -f "$DEFAULTS_FILE"
 
 # ── Push to registry (if requested) ──────────────────────────────────────────
 
@@ -234,7 +356,7 @@ fi
 
 # Helper: print device flags for the current backend
 print_device_flags() {
-    case "$GPU_BACKEND" in
+    case "${GPU_BACKEND:-custom}" in
         cuda)
             echo "      --device nvidia.com/gpu=all \\"
             ;;
@@ -255,5 +377,10 @@ echo "  $ENGINE run --rm -it \\"
 echo "      --network host \\"
 print_device_flags
 echo "      $RUN_IMAGE"
-
-
+echo ""
+echo "Override defaults at runtime:"
+echo ""
+echo "  $ENGINE run --rm -it \\"
+echo "      --network host \\"
+print_device_flags
+echo "      $RUN_IMAGE -- -c 8192 --reasoning off"
