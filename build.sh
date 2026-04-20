@@ -3,7 +3,8 @@
 # Build a self-contained llama-server container image with models baked in.
 #
 # Usage:
-#   ./build.sh --cuda                                # NVIDIA GPU (required: pick a backend)
+#   ./build.sh --cuda                                # NVIDIA GPU, CUDA 13 (required: pick a backend)
+#   ./build.sh --cuda12                              # NVIDIA GPU, CUDA 12
 #   ./build.sh --rocm                                # AMD discrete GPU
 #   ./build.sh --vulkan                              # Vulkan (AMD iGPU, Intel, broad compat)
 #   ./build.sh --profile qwen3.5-4b --cuda           # use a model profile
@@ -13,7 +14,7 @@
 #   ./build.sh --cuda --push --registry host/org     # explicit registry
 #
 # Prerequisites:
-#   - A GPU backend flag (--cuda, --rocm, or --vulkan)
+#   - A GPU backend flag (--cuda, --cuda12, --rocm, or --vulkan)
 #   - Models staged in models/ (run models.sh first, or let this script
 #     auto-stage via --profile or defaults)
 #   - podman or docker
@@ -32,6 +33,7 @@ trap cleanup EXIT
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 BASE_IMAGE_CUDA="ghcr.io/ggml-org/llama.cpp:server-cuda13"
+BASE_IMAGE_CUDA12="ghcr.io/ggml-org/llama.cpp:server-cuda"
 BASE_IMAGE_ROCM="ghcr.io/ggml-org/llama.cpp:server-rocm"
 BASE_IMAGE_VULKAN="ghcr.io/ggml-org/llama.cpp:server-vulkan"
 BASE_IMAGE=""
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --rocm)       GPU_BACKEND="rocm"; shift ;;
         --cuda)       GPU_BACKEND="cuda"; shift ;;
+        --cuda12)     GPU_BACKEND="cuda12"; shift ;;
         --vulkan)     GPU_BACKEND="vulkan"; shift ;;
         --profile)    PROFILE="$2"; shift 2 ;;
         --tag)        IMAGE_TAG="$2"; shift 2 ;;
@@ -72,12 +75,13 @@ while [[ $# -gt 0 ]]; do
         --push)       PUSH=true; shift ;;
         --registry)   REGISTRY="$2"; shift 2 ;;
         --help|-h)
-            echo "Usage: ./build.sh --cuda|--rocm|--vulkan [OPTIONS]"
+            echo "Usage: ./build.sh --cuda|--cuda12|--rocm|--vulkan [OPTIONS]"
             echo ""
             echo "Build a self-contained llama-server container image."
             echo ""
             echo "Backend (required — pick one):"
-            echo "  --cuda              NVIDIA GPUs"
+            echo "  --cuda              NVIDIA GPUs (CUDA 13)"
+            echo "  --cuda12            NVIDIA GPUs (CUDA 12)"
             echo "  --rocm              AMD discrete GPUs"
             echo "  --vulkan            Vulkan (AMD iGPU, Intel, broad compat)"
             echo ""
@@ -111,10 +115,11 @@ done
 # ── Require a GPU backend ────────────────────────────────────────────────────
 
 if [[ -z "$GPU_BACKEND" && -z "$BASE_IMAGE" ]]; then
-    echo "error: GPU backend is required. Specify --cuda, --rocm, or --vulkan" >&2
+    echo "error: GPU backend is required. Specify --cuda, --cuda12, --rocm, or --vulkan" >&2
     echo "" >&2
     echo "Examples:" >&2
-    echo "  ./build.sh --cuda                            # NVIDIA" >&2
+    echo "  ./build.sh --cuda                            # NVIDIA (CUDA 13)" >&2
+    echo "  ./build.sh --cuda12                          # NVIDIA (CUDA 12)" >&2
     echo "  ./build.sh --rocm                            # AMD discrete" >&2
     echo "  ./build.sh --vulkan                          # Vulkan" >&2
     echo "  ./build.sh --profile qwen3.5-4b --cuda       # with a profile" >&2
@@ -172,6 +177,7 @@ echo "==> engine: $ENGINE"
 if [[ -z "$BASE_IMAGE" ]]; then
     case "$GPU_BACKEND" in
         cuda)   BASE_IMAGE="$BASE_IMAGE_CUDA" ;;
+        cuda12) BASE_IMAGE="$BASE_IMAGE_CUDA12" ;;
         rocm)   BASE_IMAGE="$BASE_IMAGE_ROCM" ;;
         vulkan) BASE_IMAGE="$BASE_IMAGE_VULKAN" ;;
         *)      echo "error: unknown backend: $GPU_BACKEND" >&2; exit 1 ;;
@@ -375,7 +381,7 @@ fi
 # Helper: print device flags for the current backend
 print_device_flags() {
     case "${GPU_BACKEND:-custom}" in
-        cuda)
+        cuda|cuda12)
             echo "      --device nvidia.com/gpu=all \\"
             echo "      --security-opt label=disable \\"
             ;;

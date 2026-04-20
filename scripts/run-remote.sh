@@ -62,6 +62,7 @@ detect_backend() {
     local tag="$1"
     case "$tag" in
         *-rocm)    echo "rocm" ;;
+        *-cuda12)  echo "cuda12" ;;
         *-cuda)    echo "cuda" ;;
         *-vulkan)  echo "vulkan" ;;
         *)         echo "unknown" ;;
@@ -71,7 +72,8 @@ detect_backend() {
 # Human-readable backend description
 backend_label() {
     case "$1" in
-        cuda)    echo "NVIDIA CUDA" ;;
+        cuda)    echo "NVIDIA CUDA 13" ;;
+        cuda12)  echo "NVIDIA CUDA 12" ;;
         rocm)    echo "AMD ROCm (discrete GPU)" ;;
         vulkan)  echo "Vulkan (broad compatibility)" ;;
         *)       echo "unknown" ;;
@@ -81,7 +83,7 @@ backend_label() {
 # Print the podman/docker device flags for a backend
 device_flags() {
     case "$1" in
-        cuda)
+        cuda|cuda12)
             echo "--device nvidia.com/gpu=all --security-opt label=disable"
             ;;
         rocm)
