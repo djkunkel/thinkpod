@@ -1,4 +1,4 @@
-# llama-serve
+# thinkpod
 
 Build self-contained [llama.cpp](https://github.com/ggml-org/llama.cpp)
 container images with GGUF models baked in. Supports NVIDIA CUDA, AMD ROCm,
@@ -20,14 +20,15 @@ podman run --rm --device nvidia.com/gpu=all ubuntu nvidia-smi
 ## Quick start
 
 ```sh
-# 1. Build with the default profile
+# 1. Build with a profile
 ./build.sh --profile qwen3.5-4b --cuda
 
 # 2. Run it
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda
 ```
 
 The server is OpenAI API-compatible and works with Open WebUI, continue.dev,
@@ -46,17 +47,18 @@ or any client that speaks the `/v1/chat/completions` protocol.
 | `models/` | Staging directory for GGUF files (gitignored) |
 | `scripts/serve.sh` | Direct serving via bind-mounted HF cache (no build needed) |
 | `scripts/test-context.sh` | Context window stress test (needle-in-haystack) |
-| `scripts/run-remote.sh` | Pull and run images from a Gitea registry on remote machines |
+| `scripts/run-remote.sh` | Pull and run images from a registry on remote machines |
 
 ## Model profiles
 
 Profiles define which model to build and its runtime defaults. Each profile is
 a shell file in `profiles/` containing the HF repo, file list, and default
-llama-server flags.
+llama-server flags. See `profiles/README.md` for a detailed reference of all
+available flags.
 
 ### Creating a profile
 
-Use the interactive generator — it queries HuggingFace for available
+Use the interactive generator -- it queries HuggingFace for available
 quantizations, detects vision/reasoning support, and writes the profile:
 
 ```sh
@@ -77,9 +79,9 @@ REPO="unsloth/Qwen3.5-4B-GGUF"
 FILES=("Qwen3.5-4B-Q4_K_M.gguf" "mmproj-F16.gguf")
 
 DEFAULTS=(
-    -c 131072
-    -n 32768
-    -ngl 999
+    --ctx-size 131072
+    --n-predict 32768
+    --n-gpu-layers 999
     --flash-attn on
     --reasoning on
     --reasoning-budget 4096
@@ -92,7 +94,7 @@ image. They can be overridden at runtime (see [Runtime overrides](#runtime-overr
 ### Listing available profiles
 
 ```sh
-ls profiles/
+ls profiles/*.sh
 ```
 
 ## Staging models
@@ -122,7 +124,7 @@ host's HuggingFace cache first and falls back to downloading via the `hf` CLI.
 
 ### Multimodal / vision models
 
-For models with vision support (like Qwen3.5-4B), include the mmproj file
+For models with vision support (like Qwen3.5), include the mmproj file
 when staging. Profiles handle this automatically. For manual staging:
 
 ```sh
@@ -134,7 +136,7 @@ works out of the box -- no extra configuration needed at runtime.
 
 ## Building
 
-A GPU backend flag is **required** — there is no default:
+A GPU backend flag is **required** -- there is no default:
 
 ```sh
 # With a profile (recommended)
@@ -145,11 +147,11 @@ A GPU backend flag is **required** — there is no default:
 # Without a profile (uses whatever is in models/)
 ./build.sh --cuda
 
-# Build and push to Gitea registry
+# Build and push to registry
 ./build.sh --profile qwen3.5-4b --cuda --push
 
 # Custom tag
-./build.sh --profile qwen3.5-4b --cuda --tag my-llama:latest
+./build.sh --profile qwen3.5-4b --cuda --tag my-model:latest
 
 # Use docker instead of podman
 ./build.sh --profile qwen3.5-4b --cuda --engine docker
@@ -177,7 +179,8 @@ base image but the same model files. Run `build.sh` once per backend you need.
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda
 ```
 
 ### AMD ROCm (discrete)
@@ -187,7 +190,8 @@ podman run --rm -it \
     --network host \
     --device /dev/kfd --device /dev/dri \
     --security-opt seccomp=unconfined \
-    llama-serve:qwen3.5-4b-q4_k_m-rocm
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-rocm
 ```
 
 ### Vulkan
@@ -196,7 +200,8 @@ podman run --rm -it \
 podman run --rm -it \
     --network host \
     --device /dev/dri \
-    llama-serve:qwen3.5-4b-q4_k_m-vulkan
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-vulkan
 ```
 
 ### With docker
@@ -205,7 +210,21 @@ podman run --rm -it \
 docker run --rm -it \
     --network host \
     --gpus all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda
+    llama-serve:qwen3.5-4b-cuda
+```
+
+### Sharing images without a registry
+
+Images can be exported to a compressed tarball and loaded on another machine.
+The format is compatible between podman and docker in both directions.
+
+```sh
+# Export
+podman save localhost/llama-serve:qwen3.5-9b-cuda | gzip > qwen3.5-9b-cuda.tar.gz
+
+# Load (podman or docker)
+podman load -i qwen3.5-9b-cuda.tar.gz
+docker load -i qwen3.5-9b-cuda.tar.gz
 ```
 
 ### Runtime overrides
@@ -219,25 +238,29 @@ llama-server flags after `--`:
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- -c 8192
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --ctx-size 8192
 
 # Disable reasoning
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning off
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --reasoning off
 
 # Multiple overrides
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- -c 8192 --reasoning off --temp 0.7
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --ctx-size 8192 --reasoning off --temperature 0.7
 
 # Add extra llama-server flags not in the profile
 podman run --rm -it \
     --network host \
     --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --cache-type-k q8_0 --cache-type-v q4_0
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --cache-type-k q8_0 --cache-type-v q4_0
 ```
 
 The entrypoint does **smart merging**: if you pass a flag that conflicts with
@@ -261,7 +284,7 @@ These are hardcoded in the entrypoint and not part of the profile:
 Create a new profile and build:
 
 ```sh
-# 1. Create a profile (interactive — picks quant, detects vision/reasoning)
+# 1. Create a profile (interactive -- picks quant, detects vision/reasoning)
 ./new-profile.sh ggml-org/gemma-3-1b-it-GGUF
 
 # 2. Build with the new profile
@@ -312,7 +335,7 @@ scripts/run-remote.sh
 scripts/run-remote.sh --list
 
 # Run a specific tag directly
-scripts/run-remote.sh qwen3.5-4b-q4_k_m-vulkan
+scripts/run-remote.sh qwen3.5-4b-vulkan
 ```
 
 The script queries the OCI registry for available tags, detects the GPU backend
@@ -337,7 +360,7 @@ mmproj detection, quantization tag matching, and split shard assembly.
 
 The entrypoint reads runtime defaults from `/defaults.conf` (baked in from the
 model profile at build time) and merges them with any flags passed at `podman
-run` time. User-supplied flags override profile defaults cleanly — no
+run` time. User-supplied flags override profile defaults cleanly -- no
 duplicate flags, no environment variables needed.
 
 ## scripts/
@@ -377,6 +400,9 @@ scripts/test-context.sh
 
 # Fill 95% of context (aggressive test)
 scripts/test-context.sh 8080 0.95
+
+# Test a remote host
+scripts/test-context.sh cowboy.lan:8080 0.75
 ```
 
 Reports VRAM usage before and after, actual token count, context utilization
@@ -393,24 +419,32 @@ response (separate from `content`), compatible with the OpenAI reasoning API.
 The `--reasoning-budget` flag sets a hard token limit on thinking. When
 exceeded, the server forcibly injects `</think>` to end the thinking phase.
 
+The `--reasoning-budget-message` flag injects a nudge just before the forced
+cutoff, which is critical for Qwen 3.5 -- without it, the model leaks partial
+thoughts into the visible response and quality drops significantly.
+
 Override reasoning settings at runtime via `--` flags:
 
 ```sh
 # Larger budget
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning-budget 8192
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --reasoning-budget 8192
 
 # Unlimited thinking (no budget)
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning-budget -1
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --reasoning-budget -1
 
 # Disable thinking entirely
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- --reasoning off
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- --reasoning off
 
 # Custom budget message (nudge before forced cutoff)
 podman run --rm -it --network host --device nvidia.com/gpu=all \
-    llama-serve:qwen3.5-4b-q4_k_m-cuda -- \
+    --security-opt label=disable \
+    llama-serve:qwen3.5-4b-cuda -- \
     --reasoning-budget-message "Let me summarize and respond."
 ```
 
@@ -446,15 +480,12 @@ resolves to `::1` first on many Linux systems, `curl http://localhost:8080/`
 fails with a connection reset. `--network host` bypasses pasta entirely --
 llama-server binds directly to the host's network interfaces.
 
-## System info
+### Why `--security-opt label=disable`?
 
-This was developed and tested on:
+SELinux blocks GPU device access inside containers even when the device node
+is passed through. This applies to CUDA, ROCm, and Vulkan backends. The CDI
+device flag alone is not sufficient on SELinux-enforcing hosts (Fedora/Bazzite).
 
-- **OS**: Bazzite 43 (Fedora Kinoite-based immutable distro)
-- **GPU**: NVIDIA RTX 4070 12GB
-- **Driver**: CUDA 13.2 (595.58.03)
-- **Container runtime**: podman 5.8.1
-- **GPU toolkit**: nvidia-container-toolkit 1.18.1 (CDI)
-- **llama.cpp**: b8808 (`ghcr.io/ggml-org/llama.cpp:server-cuda13`)
-- **Model**: unsloth/Qwen3.5-4B-GGUF (Q4_K_M, 2.6GB + mmproj-F16 642MB)
-- **Performance**: ~110 tok/s generation, ~627 tok/s prompt processing
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
