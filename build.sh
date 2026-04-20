@@ -261,7 +261,19 @@ echo "==> files: $FILES"
         flag="${DEFAULTS[$local_i]}"
         # Check if next element is a value (not a flag)
         if (( local_i + 1 < ${#DEFAULTS[@]} )) && [[ "${DEFAULTS[$((local_i + 1))]}" != -* ]]; then
-            echo "$flag ${DEFAULTS[$((local_i + 1))]}"
+            val="${DEFAULTS[$((local_i + 1))]}"
+            # Quote values that contain spaces, quotes, or newlines so
+            # entrypoint.sh can safely eval them back into args.
+            # Uses $'...' quoting with \n escapes so the entire flag+value
+            # stays on a single line (defaults.conf is line-oriented).
+            if [[ "$val" == *[[:space:]]* || "$val" == *\'* || "$val" == *\"* ]]; then
+                # Escape backslashes first, then single-quotes, then newlines
+                val="${val//\\/\\\\}"
+                val="${val//\'/\\\'}"
+                val="${val//$'\n'/\\n}"
+                val="\$'${val}'"
+            fi
+            echo "$flag $val"
             local_i=$((local_i + 2))
         else
             echo "$flag"
@@ -282,29 +294,33 @@ echo "==> cache dir: $HF_REPO_CACHE"
 # ── Generate image tag if not provided ───────────────────────────────────────
 
 if [[ -z "$IMAGE_TAG" ]]; then
-    # Extract a short name from the repo: unsloth/Qwen3.5-4B-GGUF → qwen3.5-4b
-    local_name="${REPO##*/}"            # Qwen3.5-4B-GGUF
-    local_name="${local_name%-GGUF}"    # Qwen3.5-4B
-    local_name="${local_name,,}"        # qwen3.5-4b (lowercase)
-
-    # Try to extract quantization from filenames
-    quant=""
-    # Read FILES as word-split string; disable globbing to avoid expanding wildcards
-    set -f
-    for f in $FILES; do
-        if [[ "$f" != *mmproj* && "$f" =~ [-_](Q[0-9A-Z_]+)\. ]]; then
-            quant="${BASH_REMATCH[1],,}"  # q4_k_m
-            break
-        fi
-    done
-    set +f
-
     tag_backend="${GPU_BACKEND:-custom}"
 
-    if [[ -n "$quant" ]]; then
-        IMAGE_TAG="llama-serve:${local_name}-${quant}-${tag_backend}"
+    if [[ -n "$PROFILE" ]]; then
+        # Profile name is the canonical image identity.
+        IMAGE_TAG="llama-serve:${PROFILE}-${tag_backend}"
     else
-        IMAGE_TAG="llama-serve:${local_name}-${tag_backend}"
+        # No profile — derive a name from the HF repo + quantization.
+        local_name="${REPO##*/}"            # Qwen3.5-4B-GGUF
+        local_name="${local_name%-GGUF}"    # Qwen3.5-4B
+        local_name="${local_name,,}"        # qwen3.5-4b (lowercase)
+
+        # Try to extract quantization from filenames
+        quant=""
+        set -f
+        for f in $FILES; do
+            if [[ "$f" != *mmproj* && "$f" =~ [-_](Q[0-9A-Z_]+)\. ]]; then
+                quant="${BASH_REMATCH[1],,}"  # q4_k_m
+                break
+            fi
+        done
+        set +f
+
+        if [[ -n "$quant" ]]; then
+            IMAGE_TAG="llama-serve:${local_name}-${quant}-${tag_backend}"
+        else
+            IMAGE_TAG="llama-serve:${local_name}-${tag_backend}"
+        fi
     fi
 fi
 

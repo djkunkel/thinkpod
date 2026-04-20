@@ -88,9 +88,9 @@ for i in "${!default_flags[@]}"; do
     done
 
     if ! $skip; then
-        # Split the line back into flag + value(s)
-        # shellcheck disable=SC2086
-        args+=(${default_flags[$i]})
+        # Parse the line back into flag + value(s), respecting shell quoting
+        # so that values with spaces (e.g. --reasoning-budget-message) survive.
+        eval "args+=(${default_flags[$i]})"
     fi
 done
 
@@ -107,7 +107,7 @@ echo "Endpoint: http://localhost:8080"
 # Show key settings from the final args
 for i in "${!args[@]}"; do
     case "${args[$i]}" in
-        -c)             echo "Context:  ${args[$((i+1))]:-(unset)}" ;;
+        -c|--ctx-size)   echo "Context:  ${args[$((i+1))]:-(unset)}" ;;
         --flash-attn)   echo "Flash:    ${args[$((i+1))]:-(unset)}" ;;
         --reasoning)    echo "Reason:   ${args[$((i+1))]:-(unset)}" ;;
     esac

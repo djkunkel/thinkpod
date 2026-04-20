@@ -7,15 +7,27 @@
 # error. It also reports VRAM usage via nvidia-smi.
 #
 # Usage:
-#   ./test-context.sh              # test against localhost:8080
-#   ./test-context.sh 9090         # test against localhost:9090
-#   ./test-context.sh 8080 0.9     # fill 90% of context (default: 75%)
+#   ./test-context.sh                        # test against localhost:8080
+#   ./test-context.sh 9090                   # test against localhost:9090
+#   ./test-context.sh cowboy.lan:8080        # test against a remote host
+#   ./test-context.sh cowboy.lan:8080 0.9    # fill 90% of context (default: 75%)
 
 set -euo pipefail
 
-PORT="${1:-8080}"
+HOST="${1:-localhost:8080}"
 FILL_RATIO="${2:-0.75}"
-BASE_URL="http://localhost:${PORT}"
+
+# If the argument is just a number, treat it as a port on localhost.
+if [[ "$HOST" =~ ^[0-9]+$ ]]; then
+    HOST="localhost:${HOST}"
+fi
+
+# Ensure host has a port (default to 8080).
+if [[ "$HOST" != *:* ]]; then
+    HOST="${HOST}:8080"
+fi
+
+BASE_URL="http://${HOST}"
 
 # ── Preflight ────────────────────────────────────────────────────────────────
 
@@ -49,17 +61,19 @@ echo ""
 
 # ── VRAM baseline ────────────────────────────────────────────────────────────
 
-echo "--- VRAM before test ---"
-nvidia-smi --query-gpu=name,memory.used,memory.total,memory.free \
-    --format=csv,noheader,nounits 2>/dev/null | \
-    while IFS=, read -r name used total free; do
-        printf "  %s: %s MiB used / %s MiB total (%s MiB free)\n" \
-            "$(echo "$name" | xargs)" \
-            "$(echo "$used" | xargs)" \
-            "$(echo "$total" | xargs)" \
-            "$(echo "$free" | xargs)"
-    done
-echo ""
+if command -v nvidia-smi &>/dev/null && [[ "$HOST" == localhost:* || "$HOST" == 127.0.0.1:* ]]; then
+    echo "--- VRAM before test ---"
+    nvidia-smi --query-gpu=name,memory.used,memory.total,memory.free \
+        --format=csv,noheader,nounits 2>/dev/null | \
+        while IFS=, read -r name used total free; do
+            printf "  %s: %s MiB used / %s MiB total (%s MiB free)\n" \
+                "$(echo "$name" | xargs)" \
+                "$(echo "$used" | xargs)" \
+                "$(echo "$total" | xargs)" \
+                "$(echo "$free" | xargs)"
+        done
+    echo ""
+fi
 
 # ── Build a long prompt ──────────────────────────────────────────────────────
 
@@ -201,18 +215,20 @@ fi
 
 # ── VRAM after test ──────────────────────────────────────────────────────────
 
-echo ""
-echo "--- VRAM after test ---"
-nvidia-smi --query-gpu=name,memory.used,memory.total,memory.free \
-    --format=csv,noheader,nounits 2>/dev/null | \
-    while IFS=, read -r name used total free; do
-        printf "  %s: %s MiB used / %s MiB total (%s MiB free)\n" \
-            "$(echo "$name" | xargs)" \
-            "$(echo "$used" | xargs)" \
-            "$(echo "$total" | xargs)" \
-            "$(echo "$free" | xargs)"
-    done
-echo ""
+if command -v nvidia-smi &>/dev/null && [[ "$HOST" == localhost:* || "$HOST" == 127.0.0.1:* ]]; then
+    echo ""
+    echo "--- VRAM after test ---"
+    nvidia-smi --query-gpu=name,memory.used,memory.total,memory.free \
+        --format=csv,noheader,nounits 2>/dev/null | \
+        while IFS=, read -r name used total free; do
+            printf "  %s: %s MiB used / %s MiB total (%s MiB free)\n" \
+                "$(echo "$name" | xargs)" \
+                "$(echo "$used" | xargs)" \
+                "$(echo "$total" | xargs)" \
+                "$(echo "$free" | xargs)"
+        done
+    echo ""
+fi
 
 # ── Suggestions ──────────────────────────────────────────────────────────────
 
@@ -221,5 +237,5 @@ echo "  - If the test failed with OOM, reduce CTX_SIZE in scripts/serve.sh"
 echo "  - To fit more context in VRAM, add KV cache quantization:"
 echo "      scripts/serve.sh <model> --cache-type-k q8_0 --cache-type-v q4_0"
 echo "  - Run with a higher fill ratio to push harder:"
-echo "      ./test-context.sh $PORT 0.95"
+echo "      ./test-context.sh $HOST 0.95"
 echo ""
