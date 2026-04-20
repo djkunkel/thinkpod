@@ -78,17 +78,17 @@ pick_one() {
     local items=("$@")
     local count=${#items[@]}
 
-    echo ""
-    echo "$header"
+    echo "" >&2
+    echo "$header" >&2
     for i in "${!items[@]}"; do
         local num=$((i + 1))
         local marker=""
         if [[ $num -eq $default_idx ]]; then
             marker="  ← default"
         fi
-        printf "  %2d) %s%s\n" "$num" "${items[$i]}" "$marker"
+        printf "  %2d) %s%s\n" "$num" "${items[$i]}" "$marker" >&2
     done
-    echo ""
+    echo "" >&2
 
     local choice
     read -rp "Select [${default_idx}]: " choice

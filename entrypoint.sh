@@ -48,6 +48,13 @@ fi
 
 # ── Parse user-supplied flags from $@ ────────────────────────────────────────
 
+# Strip the leading "--" sentinel that docker/podman passes when the user
+# separates image args: `podman run IMAGE -- --flag`.  Without this, the
+# literal "--" would be forwarded to llama-server as a stray argument.
+if [[ "${1:-}" == "--" ]]; then
+    shift
+fi
+
 # Collect all flag names the user passed so we can skip those defaults.
 user_flag_names=()
 for arg in "$@"; do

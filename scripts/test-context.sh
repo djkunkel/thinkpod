@@ -77,7 +77,7 @@ echo "Building prompt..."
 # limits (ARG_MAX) with 100K+ character prompts.
 tmp_request=$(mktemp)
 tmp_response=$(mktemp)
-trap "rm -f $tmp_request $tmp_response" EXIT
+trap 'rm -f "$tmp_request" "$tmp_response"' EXIT
 
 python3 -c "
 import json, sys

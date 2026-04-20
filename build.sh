@@ -25,6 +25,10 @@ MODELS_DIR="$SCRIPT_DIR/models"
 MANIFEST="$MODELS_DIR/MANIFEST"
 DEFAULTS_FILE="$SCRIPT_DIR/defaults.conf"
 
+# Clean up generated defaults.conf on exit (success or failure)
+cleanup() { rm -f "$DEFAULTS_FILE"; }
+trap cleanup EXIT
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 BASE_IMAGE_CUDA="ghcr.io/ggml-org/llama.cpp:server-cuda13"
@@ -285,12 +289,15 @@ if [[ -z "$IMAGE_TAG" ]]; then
 
     # Try to extract quantization from filenames
     quant=""
+    # Read FILES as word-split string; disable globbing to avoid expanding wildcards
+    set -f
     for f in $FILES; do
         if [[ "$f" != *mmproj* && "$f" =~ [-_](Q[0-9A-Z_]+)\. ]]; then
             quant="${BASH_REMATCH[1],,}"  # q4_k_m
             break
         fi
     done
+    set +f
 
     tag_backend="${GPU_BACKEND:-custom}"
 
@@ -319,10 +326,6 @@ $ENGINE build \
 echo ""
 echo "==> build complete: $IMAGE_TAG"
 echo ""
-
-# ── Clean up generated defaults.conf ─────────────────────────────────────────
-
-rm -f "$DEFAULTS_FILE"
 
 # ── Push to registry (if requested) ──────────────────────────────────────────
 

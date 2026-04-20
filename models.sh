@@ -38,11 +38,6 @@ warn() { echo "warning: $*" >&2; }
 # Convert a HF repo name to the cache directory name.
 #   unsloth/Qwen3.5-4B-GGUF → models--unsloth--Qwen3.5-4B-GGUF
 repo_to_dirname() {
-    echo "models--${1//\//__}"  # first pass: / → __
-    # HF actually uses -- not __ — fix:
-    :
-}
-repo_to_dirname() {
     local name="$1"
     echo "models--${name//\//--}"
 }
