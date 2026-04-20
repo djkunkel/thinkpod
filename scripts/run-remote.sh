@@ -80,13 +80,13 @@ backend_label() {
 device_flags() {
     case "$1" in
         cuda)
-            echo "--device nvidia.com/gpu=all"
+            echo "--device nvidia.com/gpu=all --security-opt label=disable"
             ;;
         rocm)
-            echo "--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined"
+            echo "--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined --security-opt label=disable"
             ;;
         vulkan)
-            echo "--device /dev/dri"
+            echo "--device /dev/dri --security-opt label=disable"
             ;;
         *)
             echo ""

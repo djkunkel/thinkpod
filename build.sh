@@ -185,16 +185,22 @@ need_stage=false
 if [[ "$gguf_count" -eq 0 ]]; then
     need_stage=true
 elif [[ -n "$PROFILE" && -f "$MANIFEST" ]]; then
-    # Check if staged model matches the requested profile
+    # Check if staged model matches the requested profile (repo + files)
     MANIFEST_REPO=""
+    MANIFEST_FILES=""
     # shellcheck source=/dev/null
     source "$MANIFEST"
     MANIFEST_REPO="$REPO"
-    # Re-source the profile to restore REPO (MANIFEST source overwrites it)
+    MANIFEST_FILES="$FILES"
+    # Re-source the profile to restore REPO/FILES (MANIFEST source overwrites them)
     # shellcheck source=/dev/null
     source "$PROFILE_FILE"
+    PROFILE_FILES="${FILES[*]}"
     if [[ "$MANIFEST_REPO" != "$REPO" ]]; then
-        echo "==> staged model ($MANIFEST_REPO) doesn't match profile ($REPO)"
+        echo "==> staged repo ($MANIFEST_REPO) doesn't match profile ($REPO)"
+        need_stage=true
+    elif [[ "$MANIFEST_FILES" != "$PROFILE_FILES" ]]; then
+        echo "==> staged files ($MANIFEST_FILES) don't match profile ($PROFILE_FILES)"
         need_stage=true
     fi
 fi
@@ -226,15 +232,8 @@ fi
 REPO=""
 COMMIT=""
 FILES=""
-while IFS='=' read -r key value; do
-    # Skip comments and blank lines
-    [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
-    case "$key" in
-        REPO)   REPO="$value" ;;
-        COMMIT) COMMIT="$value" ;;
-        FILES)  FILES="$value" ;;
-    esac
-done < "$MANIFEST"
+# shellcheck source=/dev/null
+source "$MANIFEST"
 
 if [[ -z "$REPO" || -z "$COMMIT" ]]; then
     echo "error: MANIFEST is missing REPO or COMMIT" >&2
@@ -359,13 +358,16 @@ print_device_flags() {
     case "${GPU_BACKEND:-custom}" in
         cuda)
             echo "      --device nvidia.com/gpu=all \\"
+            echo "      --security-opt label=disable \\"
             ;;
         rocm)
             echo "      --device /dev/kfd --device /dev/dri \\"
             echo "      --security-opt seccomp=unconfined \\"
+            echo "      --security-opt label=disable \\"
             ;;
         vulkan)
             echo "      --device /dev/dri \\"
+            echo "      --security-opt label=disable \\"
             ;;
     esac
 }
