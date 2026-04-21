@@ -11,7 +11,7 @@
 #   ./run-remote.sh                                # interactive: pick from registry
 #   ./run-remote.sh qwen3.5-4b-q4_k_m-vulkan       # run a specific tag directly
 #   ./run-remote.sh --list                         # just list available images
-#   ./run-remote.sh -c 8192 TAG                    # override context length
+#   ./run-remote.sh TAG -- -c 8192 --temp 0.7      # pass arbitrary llama-server args
 #   ./run-remote.sh --dry-run TAG                  # print the run command without executing
 #   ./run-remote.sh --registry host/org TAG        # use a different registry
 #
@@ -24,6 +24,9 @@
 #   2. Login to the registry:
 #        podman login tendi.lan:4200
 #
+# Passing llama-server args:
+#   Anything after -- is forwarded verbatim to the container (overrides defaults).
+#
 # Environment:
 #   REGISTRY    Registry prefix (default: tendi.lan:4200/djkunkel)
 #   ENGINE      Container engine: podman or docker (auto-detected)
@@ -35,8 +38,8 @@ set -euo pipefail
 REGISTRY="${REGISTRY:-tendi.lan:4200/djkunkel}"
 IMAGE_NAME="thinkpod"
 ENGINE="${ENGINE:-}"
-CONTEXT_SIZE=""
 DRY_RUN=false
+EXTRA_ARGS=()  # llama-server args passed after --
 
 # ── Detect container engine ──────────────────────────────────────────────────
 
@@ -274,9 +277,9 @@ run_image() {
     flags=$(device_flags "$backend")
 
     # Container args (passed after the image name to override entrypoint defaults)
-    local container_args=""
-    if [[ -n "$CONTEXT_SIZE" ]]; then
-        container_args="-- -c $CONTEXT_SIZE"
+    local container_args=()
+    if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+        container_args=("--" "${EXTRA_ARGS[@]}")
     fi
 
     if $DRY_RUN; then
@@ -284,7 +287,7 @@ run_image() {
         info "dry-run: command that would be executed:"
         echo ""
         # shellcheck disable=SC2086
-        echo "$ENGINE run --rm -it --network host $flags $image $container_args"
+        echo "$ENGINE run --rm -it --network host $flags $image${container_args:+ ${container_args[*]}}"
         return 0
     fi
 
@@ -296,7 +299,7 @@ run_image() {
     exec $ENGINE run --rm -it \
         --network host \
         $flags \
-        "$image" $container_args
+        "$image" "${container_args[@]}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -318,15 +321,15 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
-        --context|-c)
-            [[ -z "${2:-}" ]] && die "--context requires a value (e.g. -c 8192)"
-            CONTEXT_SIZE="$2"
-            shift 2
-            ;;
         --registry)
             [[ -z "${2:-}" ]] && die "--registry requires a value (e.g. --registry host/org)"
             REGISTRY="$2"
             shift 2
+            ;;
+        --)
+            shift
+            EXTRA_ARGS=("$@")
+            break
             ;;
         -*)
             die "unknown option: $1 (try --help)"
@@ -343,7 +346,7 @@ case "${ACTION:-}" in
         cmd_list
         ;;
     help)
-        echo "Usage: ./run-remote.sh [OPTIONS] [TAG]"
+        echo "Usage: ./run-remote.sh [OPTIONS] [TAG] [-- LLAMA_ARGS...]"
         echo ""
         echo "Pull and run a thinkpod container from an OCI registry."
         echo ""
@@ -354,9 +357,14 @@ case "${ACTION:-}" in
         echo "  --help          Show this help"
         echo ""
         echo "Options:"
-        echo "  -c, --context SIZE   Override the model's default context length"
         echo "  --dry-run            Print the run command without executing it"
         echo "  --registry HOST/ORG  Registry prefix (default: tendi.lan:4200/djkunkel)"
+        echo ""
+        echo "Passing llama-server args:"
+        echo "  Anything after -- is forwarded verbatim to the container (overrides defaults)."
+        echo "  Examples:"
+        echo "    ./run-remote.sh TAG -- -c 8192"
+        echo "    ./run-remote.sh TAG -- -c 32768 --temp 0.7 --top-p 0.9"
         echo ""
         echo "Environment:"
         echo "  REGISTRY    Registry prefix (default: tendi.lan:4200/djkunkel)"
