@@ -29,12 +29,16 @@
 # Container backends:
 #   --cuda          NVIDIA CUDA 13 (ghcr.io/ggml-org/llama.cpp:server-cuda13)
 #   --cuda12        NVIDIA CUDA 12 (ghcr.io/ggml-org/llama.cpp:server-cuda)
+#                   CUDA containers require the NVIDIA Container Toolkit
+#                   (nvidia-ctk) for GPU access; run.sh checks for it.
 #
 # Environment:
 #   LLAMA_RELEASE       Pin a specific release tag for this run (binary
 #                       backends); forwarded to backends.sh. Default: the
 #                       current selection in bin/current, or latest on update.
 #   HF_HUB              HuggingFace cache directory (default: ~/.cache/huggingface/hub)
+#                       Created automatically if missing so llama-server can
+#                       download the model on first run.
 #   HOST                Bind address (default: 0.0.0.0)
 #   PORT                Bind port    (default: 8080)
 #   IMAGE               Override container image (container backends only)
@@ -92,6 +96,27 @@ backend_label() {
     esac
 }
 
+# Verify the NVIDIA Container Toolkit is installed for CUDA container backends.
+# The --device nvidia.com/gpu=all flag resolves via CDI, which the toolkit
+# generates; without it the container starts but cannot see the GPU.
+# $1 = "fatal" to exit with install instructions, "warn" to only print them.
+_check_nvidia_toolkit() {
+    command -v nvidia-ctk &>/dev/null && return 0
+    local msg
+    msg="NVIDIA Container Toolkit (nvidia-ctk) is required for --$BACKEND so the
+container can access the GPU, but it was not found on this host.
+
+See the official install guide for your distribution:
+    https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+Then re-run: ./run.sh --$BACKEND --profile $PROFILE"
+    if [[ "$1" == "fatal" ]]; then
+        die "$msg"
+    else
+        echo "warning: $msg" >&2
+    fi
+}
+
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
 while [[ $# -gt 0 ]]; do
@@ -128,8 +153,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --vulkan        Ubuntu x64 Vulkan"
             echo ""
             echo "Container backends (run a ghcr.io image via podman/docker):"
-            echo "  --cuda          NVIDIA CUDA 13"
-            echo "  --cuda12        NVIDIA CUDA 12"
+            echo "  --cuda          NVIDIA CUDA 13 (requires nvidia-container-toolkit)"
+            echo "  --cuda12        NVIDIA CUDA 12 (requires nvidia-container-toolkit)"
             echo ""
             echo "Options:"
             echo "  --profile NAME      Source profiles/<NAME>.sh (required)"
@@ -255,6 +280,17 @@ if _is_container "$BACKEND"; then
         fi
     fi
 
+    # CUDA containers need the NVIDIA Container Toolkit for GPU access; fail
+    # fast with install instructions (warn only in --dry-run so the command
+    # can still be previewed on a host without the toolkit).
+    if [[ "$BACKEND" == "cuda" || "$BACKEND" == "cuda12" ]]; then
+        if $DRY_RUN; then
+            _check_nvidia_toolkit warn
+        else
+            _check_nvidia_toolkit fatal
+        fi
+    fi
+
     # Select image: honor an explicit IMAGE override, otherwise ask backends.sh
     # for the current selection (falls back to the default image if unset).
     [[ -x "$BACKENDS_SH" ]] || die "backends.sh not found at $BACKENDS_SH"
@@ -281,7 +317,17 @@ if _is_container "$BACKEND"; then
         TEMPLATE_DIR="$(cd "$TEMPLATE_DIR" && pwd)"
     fi
 
-    [[ ! -d "$HF_HUB" ]] && die "HuggingFace cache not found at $HF_HUB (set HF_HUB to override)"
+    # The HuggingFace cache is bind-mounted into the container; create it on
+    # demand so a fresh host can download the model on first run. llama-server
+    # fetches weights lazily via -hf, so an empty cache is fine.
+    if [[ ! -d "$HF_HUB" ]]; then
+        if $DRY_RUN; then
+            info "(dry-run) would create HuggingFace cache at $HF_HUB"
+        else
+            info "creating HuggingFace cache at $HF_HUB (model downloads on first run)"
+            mkdir -p "$HF_HUB"
+        fi
+    fi
 
     # Summary.
     info "profile:  $PROFILE"

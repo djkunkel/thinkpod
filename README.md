@@ -17,8 +17,8 @@ Pick a backend for your hardware:
 | `--rocm` | AMD ROCm (upstream release) |
 | `--rocm-nightly` | AMD ROCm (lemonade-sdk nightly builds) |
 | `--vulkan` | Vulkan (AMD iGPU, Intel, etc.) |
-| `--cuda` | NVIDIA CUDA 13 (container) |
-| `--cuda12` | NVIDIA CUDA 12 (container) |
+| `--cuda` | NVIDIA CUDA 13 (container; requires nvidia-container-toolkit) |
+| `--cuda12` | NVIDIA CUDA 12 (container; requires nvidia-container-toolkit) |
 
 The server starts in the foreground and is available at
 `http://localhost:8080`. See available profiles with `ls profiles/` or
@@ -70,7 +70,7 @@ See `./backends.sh --help` for full options. Binary builds cache under
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HF_HUB` | `~/.cache/huggingface/hub` | HuggingFace cache directory |
+| `HF_HUB` | `~/.cache/huggingface/hub` | HuggingFace cache directory (auto-created if missing) |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `8080` | Bind port |
 | `ENGINE` | auto-detected | Container engine: `podman` or `docker` |

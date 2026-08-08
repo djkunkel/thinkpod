@@ -85,6 +85,12 @@ Container backends accept `--template-dir <dir>` to mount a custom template
 directory into the container at `/templates`. It defaults to `templates/` if
 that directory exists.
 
+Container backends (`--cuda`, `--cuda12`) require the NVIDIA Container Toolkit
+(`nvidia-ctk`) on the host for GPU access — `run.sh` checks for it and fails
+fast with install instructions if missing. The HuggingFace cache (`HF_HUB`)
+is created automatically if absent so a fresh host can download the model on
+first run; `--dry-run` previews the command without creating it.
+
 The script does not exit on its own — it runs llama-server in the foreground.
 
 ## backends.sh

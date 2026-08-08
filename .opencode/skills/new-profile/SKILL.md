@@ -196,9 +196,11 @@ Pin a tag for a single run with `--release TAG` or the `LLAMA_RELEASE`
 environment variable — this does not change the saved default in
 `bin/current`.
 
-Container backends (`--cuda`, `--cuda12`) require podman or docker and pull
-the upstream ghcr.io image. All container runs use `--network host` (required
-due to a podman rootless pasta bug with IPv6).
+Container backends (`--cuda`, `--cuda12`) require podman or docker, the
+NVIDIA Container Toolkit (`nvidia-ctk`) for GPU access, and pull the upstream
+ghcr.io image. All container runs use `--network host` (required due to a
+podman rootless pasta bug with IPv6). The HuggingFace cache is auto-created
+on first run if missing.
 
 ---
 
