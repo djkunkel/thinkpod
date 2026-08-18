@@ -4,13 +4,18 @@
 # speculative decoding. Hybrid reasoning model with thinking preservation,
 # native vision-language understanding (image + video), and flexible thinking
 # control via `reasoning_effort`. Top agentic-coding performance at its class.
-# Architecture: qwen3_5 | Max context: 262144 | Reasoning: yes | Vision: yes
+# Architecture: qwen35 | Max context: 262144 | Reasoning: yes | Vision: yes
 #
-# Note: MTP + vision (--mmproj) may not work together depending on your llama.cpp
-# build. If you encounter errors, remove the mmproj from FILES or drop MTP flags.
+# Note: MTP + vision may not work together depending on your llama.cpp build.
+# If you encounter errors, disable vision with `-- --no-mmproj` or drop the
+# MTP flags.
+#
+# Vision: the mmproj* entry in FILES is advisory — run.sh ignores it and
+# llama-server auto-downloads + loads the repo's default projector
+# (mmproj-BF16.gguf) via -hf. To disable vision: `-- --no-mmproj`.
 
 REPO="unsloth/Qwen3.8-27B-GGUF"
-FILES=("Qwen3.8-27B-UD-Q6_K_XL.gguf" "mmproj-F16.gguf")
+FILES=("Qwen3.8-27B-UD-Q5_K_XL.gguf" "mmproj-BF16.gguf")
 # TEMPLATE="qwen-fixed-chat-template.jinja"
 
 # --- Template / steering research notes (2026-08-15) ---
@@ -79,5 +84,6 @@ DEFAULTS=(
     --reasoning on
     --spec-type draft-mtp
     --spec-draft-n-max 2
+    --cache-type-v q8_0
     --jinja
 )
