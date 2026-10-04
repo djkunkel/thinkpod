@@ -8,10 +8,11 @@
 # Architecture: gemma4 | Max context: 262144 | Reasoning: yes | Vision: yes
 #
 # Note: MTP + vision (--mmproj) may not work together depending on your llama.cpp
-# build. If you encounter errors, remove the mmproj from FILES or drop MTP flags.
+# build. If you encounter errors, disable vision with `-- --no-mmproj` or drop
+# the MTP flags.
 
 REPO="HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced"
-FILES=("Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf" "mmproj-Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf" "mtp-gemma-4-12B-it.gguf")
+FILES=("Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf")
 
 # Runtime defaults — native llama-server flags.
 # Passed directly to llama-server; overridable at run time via -- args.
@@ -20,11 +21,10 @@ FILES=("Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf" "mmproj-Gemma4-
 #   temperature=0.6, top_k=64, top_p=0.9, min_p=0.05, repeat_penalty=1.1
 #
 # MTP: --spec-type draft-mtp activates multi-token prediction speculative
-# decoding using mtp-gemma-4-12B-it.gguf as the drafter. --spec-draft-n-max 2
-# is the recommended starting point; try 1-6 and pick the fastest for your
-# hardware. MTP adds ~242 MB overhead.
-# (llama.cpp renamed --spec-type mtp → draft-mtp on 2026-05-13; requires a
-# recent build or release binary.)
+# decoding. llama.cpp auto-downloads the repo's MTP head
+# (mtp-gemma-4-12B-it.gguf, ~254 MB) and uses it as the drafter.
+# --spec-draft-n-max 2 is the recommended starting point; try 1-6 and pick the
+# fastest for your hardware. Plan ~2 GB RAM/VRAM headroom.
 DEFAULTS=(
     --n-predict 32768
     --n-gpu-layers 999

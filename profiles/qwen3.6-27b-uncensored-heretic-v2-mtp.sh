@@ -6,7 +6,7 @@
 # Architecture: qwen3_6 | Max context: 262144 | Reasoning: yes | Vision: yes
 
 REPO="llmfan46/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-GGUF"
-FILES=("Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-Q4_K_M.gguf" "Qwen3.6-27B-mmproj-BF16.gguf")
+FILES=("Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-Q4_K_M.gguf")
 TEMPLATE="qwen-fixed-chat-template.jinja"
 
 # Runtime defaults — native llama-server flags.
@@ -18,7 +18,8 @@ TEMPLATE="qwen-fixed-chat-template.jinja"
 # cannot see host VRAM.
 #
 # Note: MTP + vision (--mmproj) may not work together depending on your llama.cpp
-# build. If you encounter errors, remove the mmproj from FILES or drop MTP flags.
+# build. If you encounter errors, disable vision with `-- --no-mmproj` or drop
+# the MTP flags.
 #
 # Sampling params per Qwen3.6 docs (thinking mode, general tasks):
 #   temperature=1.0, top_p=0.95, top_k=20, min_p=0.0, presence_penalty=1.5

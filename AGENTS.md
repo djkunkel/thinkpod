@@ -28,7 +28,7 @@ A profile is a bash file sourced by `run.sh`. It sets three variables:
 
 ```bash
 REPO="org/Model-GGUF"                      # HuggingFace repo
-FILES=("Model-Q4_K_M.gguf")                # GGUF file(s); add mmproj for vision
+FILES=("Model-Q4_K_M.gguf")                # primary GGUF file(s) to load
 TEMPLATE="my-chat-template.jinja"          # Optional: filename in templates/
 DEFAULTS=(                                 # llama-server flags as a bash array
     --n-predict 32768
@@ -49,11 +49,14 @@ Key rules:
   `--cuda12`) pass `-- --ctx-size <N>` at the command line since the container
   cannot introspect host VRAM.
 - `FILES` and `DEFAULTS` are bash arrays — use parentheses and quoted elements.
+  `run.sh` passes only the first `FILES` entry as `--hf-file`. Do **not** list
+  the vision projector (`mmproj*`) or MTP head (`mtp-*`): llama-server
+  auto-downloads both from the `-hf` repo. Disable vision with `-- --no-mmproj`.
 - `TEMPLATE` is a bare filename (no path); the file must exist in `templates/`.
   `run.sh` resolves it automatically and injects `--jinja --chat-template-file`.
 - `--n-gpu-layers 999` and `--flash-attn on` should always be present.
 - For MTP (Multi-Token Prediction) models add `--spec-type draft-mtp` and
-  `--spec-draft-n-max 2`.
+  `--spec-draft-n-max 2`; llama-server auto-downloads the MTP head from the repo.
 - For reasoning models add `--reasoning on`. Add `--reasoning-budget <N>` and
   `--reasoning-budget-message` only if a budget is needed to prevent think-block
   leakage.

@@ -8,7 +8,7 @@
 # Architecture: gemma4 | Max context: 262144 | Reasoning: yes | Vision: yes
 
 REPO="HauhauCS/Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced"
-FILES=("Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced-Q5_K_P.gguf" "mmproj-Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced-f16.gguf")
+FILES=("Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced-Q5_K_P.gguf")
 
 # Runtime defaults — native llama-server flags.
 # Passed directly to llama-server; overridable at run time via -- args.

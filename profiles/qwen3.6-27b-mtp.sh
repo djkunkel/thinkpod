@@ -6,10 +6,11 @@
 # Architecture: qwen35 | Max context: 262144 | Reasoning: yes | Vision: yes
 #
 # Note: MTP + vision (--mmproj) may not work together depending on your llama.cpp
-# build. If you encounter errors, remove the mmproj from FILES or drop MTP flags.
+# build. If you encounter errors, disable vision with `-- --no-mmproj` or drop
+# the MTP flags.
 
 REPO="unsloth/Qwen3.6-27B-MTP-GGUF"
-FILES=("Qwen3.6-27B-UD-Q4_K_XL.gguf" "mmproj-BF16.gguf")
+FILES=("Qwen3.6-27B-UD-Q4_K_XL.gguf")
 TEMPLATE="qwen-fixed-chat-template.jinja"
 
 # Runtime defaults — native llama-server flags.
@@ -27,8 +28,6 @@ TEMPLATE="qwen-fixed-chat-template.jinja"
 # MTP: --spec-type draft-mtp activates multi-token prediction speculative
 # decoding. --spec-draft-n-max 2 is the Unsloth-recommended sweet spot:
 # acceptance rate drops from ~83% to ~50% at 4 draft tokens, making 2 optimal.
-# (llama.cpp renamed --spec-type mtp → draft-mtp on 2026-05-13; requires a
-# recent build or release binary.)
 DEFAULTS=(
     --n-predict 32768
     --n-gpu-layers 999

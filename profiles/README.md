@@ -16,7 +16,7 @@ occurrence wins for llama-server's flag parser.
 | Flag | Value | Purpose |
 |------|-------|---------|
 | `-hf` | (from profile `REPO`) | HuggingFace repo to load the model from |
-| `--hf-file` | (from profile `FILES`) | Specific GGUF file to load |
+| `--hf-file` | (from profile `FILES`) | Primary GGUF file to load. llama-server auto-downloads the vision projector and MTP head from `-hf`. |
 | `--host` | `0.0.0.0` (env `HOST`) | Listen address |
 | `--port` | `8080` (env `PORT`) | Listen port |
 | `--metrics` | | Enable Prometheus-compatible `/metrics` endpoint |

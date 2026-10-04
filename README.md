@@ -97,7 +97,7 @@ variables:
 
 ```bash
 REPO="org/Model-GGUF"
-FILES=("Model-Q4_K_M.gguf")        # bash array; add "mmproj-F16.gguf" for vision
+FILES=("Model-Q4_K_M.gguf")        # bash array; primary GGUF file(s) to load
 TEMPLATE="my-chat-template.jinja"  # optional; file must live in templates/
 DEFAULTS=(
     --n-predict 32768

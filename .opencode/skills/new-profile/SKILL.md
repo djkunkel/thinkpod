@@ -94,7 +94,7 @@ or adjust before creating the profile.
 
 ## Step 3 — Create a profile
 
-### 3a. Choose quantization and vision projector
+### 3a. Choose quantization (note vision support)
 
 Ask the user which quantization to use.  Recommend **Q4_K_M** as the default
 for most use cases.  Mention trade-offs:
@@ -104,8 +104,9 @@ for most use cases.  Mention trade-offs:
 - Q6_K — near-lossless, significantly more VRAM
 - Q8_0 — highest quality GGUF quant, most VRAM
 
-If the model has mmproj files, ask whether to include vision support.  If yes,
-recommend **mmproj-F16.gguf** (or whatever F16 variant exists).
+If the model has mmproj files, note `Vision: yes` in the profile header.
+Do **not** add the projector to `FILES` — llama-server auto-downloads and
+loads it from the `-hf` repo (disable at run time with `-- --no-mmproj`).
 
 ### 3b. Choose profile name
 
@@ -124,7 +125,7 @@ Write the profile to `profiles/<name>.sh` using this exact format:
 # Architecture: <arch> | Max context: <ctx> | Reasoning: yes/no | Vision: yes/no
 
 REPO="<org>/<Model-GGUF>"
-FILES=("<model-quant>.gguf"[ "<mmproj>.gguf"])
+FILES=("<model-quant>.gguf")
 
 # Runtime defaults — native llama-server flags.
 # Passed directly to llama-server; overridable at run time via -- args.
@@ -141,7 +142,10 @@ DEFAULTS=(
 
 Important rules for the profile:
 
-- `FILES` is a **bash array** with parentheses and quoted elements.
+- `FILES` is a **bash array** with parentheses and quoted elements. Use it for
+  the primary GGUF file(s) only; `run.sh` passes the first entry as `--hf-file`.
+  The vision projector and MTP head are auto-downloaded by llama-server — never
+  list `mmproj*` or `mtp-*` entries.
 - `DEFAULTS` is a **bash array**.  Flag-value pairs are adjacent elements
   (e.g. `--n-predict 32768` is two elements: `--n-predict` and `32768`).
 - Do **not** include `--ctx-size` in profiles. Binary backends let llama-server

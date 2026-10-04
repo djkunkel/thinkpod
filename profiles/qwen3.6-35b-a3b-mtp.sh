@@ -7,7 +7,7 @@
 # Architecture: qwen3_5_moe | Max context: 262144 | Reasoning: yes | Vision: yes
 
 REPO="unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
-FILES=("Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "mmproj-F16.gguf")
+FILES=("Qwen3.6-35B-A3B-UD-Q4_K_M.gguf")
 
 # Runtime defaults — native llama-server flags.
 # Passed directly to llama-server; overridable at run time via -- args.
@@ -23,9 +23,7 @@ FILES=("Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "mmproj-F16.gguf")
 # MTP: --spec-type draft-mtp activates multi-token prediction speculative
 # decoding. MTP weights are embedded in the main GGUF (no separate drafter).
 # --spec-draft-n-max 2 is the Unsloth-recommended starting point; try 1-6
-# and pick the fastest for your hardware. MTP adds ~2 GB RAM/VRAM overhead.
-# (llama.cpp renamed --spec-type mtp → draft-mtp on 2026-05-13; requires a
-# recent build or release binary.)
+# and pick the fastest for your hardware. Plan ~2 GB RAM/VRAM headroom.
 DEFAULTS=(
     --n-predict 32768
     --n-gpu-layers 999

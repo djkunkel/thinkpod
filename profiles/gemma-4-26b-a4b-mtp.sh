@@ -7,10 +7,11 @@
 # Architecture: gemma4 | Max context: 262144 | Reasoning: yes | Vision: yes
 #
 # Note: MTP + vision (--mmproj) may not work together depending on your llama.cpp
-# build. If you encounter errors, remove the mmproj from FILES or drop MTP flags.
+# build. If you encounter errors, disable vision with `-- --no-mmproj` or drop
+# the MTP flags.
 
 REPO="unsloth/gemma-4-26B-A4B-it-GGUF"
-FILES=("gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf" "mmproj-BF16.gguf" "mtp-gemma-4-26B-A4B-it.gguf")
+FILES=("gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf")
 
 # Runtime defaults — native llama-server flags.
 # Passed directly to llama-server; overridable at run time via -- args.
@@ -23,11 +24,10 @@ FILES=("gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf" "mmproj-BF16.gguf" "mtp-gemma-4-26B-
 # prompt. To disable at run time: -- --chat-template-kwargs '{"enable_thinking":false}'
 #
 # MTP: --spec-type draft-mtp activates multi-token prediction speculative
-# decoding using mtp-gemma-4-26B-A4B-it.gguf as the drafter. --spec-draft-n-max 2
-# is the Unsloth-recommended starting point; try 1-6 and pick the fastest for
-# your hardware. MTP adds ~2 GB RAM/VRAM overhead.
-# (llama.cpp renamed --spec-type mtp → draft-mtp on 2026-05-13; requires a
-# recent build or release binary.)
+# decoding. llama.cpp auto-downloads the repo's MTP head
+# (mtp-gemma-4-26B-A4B-it.gguf, ~462 MB) and uses it as the drafter.
+# --spec-draft-n-max 2 is the Unsloth-recommended starting point; try 1-6 and
+# pick the fastest for your hardware. Plan ~2 GB RAM/VRAM headroom.
 DEFAULTS=(
     --n-predict 32768
     --n-gpu-layers 999
