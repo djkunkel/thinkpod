@@ -1,4 +1,4 @@
-# thinkpod2 — Agent Instructions
+# thinkpod — Agent Instructions
 
 This repo is a lightweight llama-server launcher. It has no build system, no
 tests, and no compiled code. Changes are almost always to shell scripts and
@@ -7,7 +7,7 @@ profile files.
 ## Repository layout
 
 ```
-thinkpod2/
+thinkpod/
 ├── run.sh                 # Launcher — builds llama-server args + runs the backend
 ├── backends.sh            # Backend lifecycle — update/use/list/prune/current
 ├── profiles/              # Model profiles — one .sh file per model variant

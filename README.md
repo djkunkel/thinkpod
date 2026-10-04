@@ -1,4 +1,4 @@
-# thinkpod2
+# thinkpod
 
 Lightweight llama-server launcher using profiles. No baked-in model
 images — models load directly from the local HuggingFace cache.
@@ -119,7 +119,7 @@ VRAM. Pass it at the command line (`-- --ctx-size N`) only when needed
 ## Directory layout
 
 ```
-thinkpod2/
+thinkpod/
 ├── run.sh                 # Launcher — builds llama-server args + runs the backend
 ├── backends.sh            # Backend lifecycle — update/use/list/prune/current
 ├── profiles/              # Model profiles (one .sh file per model variant)

@@ -5,7 +5,7 @@ description: Guide the user through finding a GGUF model on HuggingFace, researc
 
 # New Profile Skill
 
-You are helping the user create a thinkpod2 profile for a GGUF model.  This is
+You are helping the user create a thinkpod profile for a GGUF model.  This is
 a multi-step interactive workflow.  Ask questions along the way — do not guess
 or skip steps.
 
