@@ -43,7 +43,7 @@
 #
 # Environment:
 #   LLAMA_RELEASE       Pin release tag (same as --release)
-#   ROCM_VERSION        ROCm version in asset name (default: 7.2)
+#   ROCM_VERSION        ROCm version in asset name (default: 10.0)
 #   ROCM_NIGHTLY_REPO   GitHub repo for nightly ROCm builds
 #                       (default: lemonade-sdk/llamacpp-rocm)
 #   ROCM_GFX            GPU target for nightly builds (default: gfx120X)
@@ -61,7 +61,7 @@ set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 
-ROCM_VERSION="${ROCM_VERSION:-7.2}"
+ROCM_VERSION="${ROCM_VERSION:-10.0}"
 ROCM_NIGHTLY_REPO="${ROCM_NIGHTLY_REPO:-lemonade-sdk/llamacpp-rocm}"
 ROCM_GFX="${ROCM_GFX:-gfx120X}"
 ARCH="${ARCH:-x64}"
@@ -90,13 +90,27 @@ _valid_backend() {
     return 1
 }
 
-# Resolve the latest release tag from a GitHub repo.
-# $1 = repo in "owner/name" form. Prints the tag or empty string on failure.
+# Resolve the latest release tag for a binary backend from a GitHub repo.
+# Scans recent releases and picks the newest one that actually ships the
+# backend's asset: upstream llama.cpp now marks its `b*` build releases as
+# pre-releases, so /releases/latest points at a source-only tag (e.g. v0.5.0)
+# with no binaries.
+# $1 = backend, $2 = repo in "owner/name" form. Prints the tag or empty string.
 _resolve_latest_release() {
-    local repo="$1"
-    curl -fsSL --max-time 5 \
-        "https://api.github.com/repos/${repo}/releases/latest" \
-        2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+    local backend="$1" repo="$2" json tag asset
+    json="$(curl -fsSL --max-time 10 \
+        "https://api.github.com/repos/${repo}/releases?per_page=30" \
+        2>/dev/null || true)"
+    [[ -z "$json" ]] && return 0
+    while IFS= read -r tag; do
+        [[ -z "$tag" ]] && continue
+        asset="$(asset_name "$backend" "$tag")"
+        [[ -z "$asset" ]] && continue
+        if grep -qF "\"name\": \"${asset}\"" <<<"$json"; then
+            echo "$tag"
+            return 0
+        fi
+    done < <(grep '"tag_name"' <<<"$json" | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 }
 
 # GitHub repo that hosts releases for a backend.
@@ -297,7 +311,7 @@ cmd_update() {
     # Binary backend.
     local tag="$release"
     if [[ -z "$tag" ]]; then
-        tag="$(_resolve_latest_release "$(backend_repo "$backend")")"
+        tag="$(_resolve_latest_release "$backend" "$(backend_repo "$backend")")"
     fi
     [[ -z "$tag" ]] && die "could not resolve release tag from GitHub API — check your network or pin with --release"
 
