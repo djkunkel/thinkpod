@@ -28,7 +28,7 @@
 #
 # Container backends:
 #   --cuda          NVIDIA CUDA 13 (ghcr.io/ggml-org/llama.cpp:server-cuda13)
-#   --cuda12        NVIDIA CUDA 12 (ghcr.io/ggml-org/llama.cpp:server-cuda)
+#   --cuda12        NVIDIA CUDA 12 (ghcr.io/ggml-org/llama.cpp:server-cuda12)
 #                   CUDA containers require the NVIDIA Container Toolkit
 #                   (nvidia-ctk) for GPU access; run.sh checks for it.
 #

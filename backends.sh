@@ -144,7 +144,7 @@ backend_label() {
 default_image() {
     case "$1" in
         cuda)   echo "ghcr.io/ggml-org/llama.cpp:server-cuda13" ;;
-        cuda12) echo "ghcr.io/ggml-org/llama.cpp:server-cuda"   ;;
+        cuda12) echo "ghcr.io/ggml-org/llama.cpp:server-cuda12" ;;
     esac
 }
 
