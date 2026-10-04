@@ -433,7 +433,7 @@ cmd_list() {
             img_tag="$(default_image "$b")"
             img_tag="${img_tag##*:}"
             "$ENGINE" images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-                | grep -F ":$img_tag" | sed 's/^/    /' || true
+                | grep -E ":${img_tag}\$" | sed 's/^/    /' || true
         fi
     done
 }
@@ -525,9 +525,11 @@ done
 [[ -z "$CMD" ]] && die "a subcommand is required (try --help)"
 
 # list/prune accept an optional backend filter; others require a backend.
-if [[ "$CMD" != "list" ]]; then
+if [[ "$CMD" != "list" && "$CMD" != "prune" ]]; then
     [[ -z "$BACKEND" ]] && die "a backend is required (try --help)"
-    _valid_backend "$BACKEND" || die "unknown backend: $BACKEND"
+fi
+if [[ -n "$BACKEND" ]] && ! _valid_backend "$BACKEND"; then
+    die "unknown backend: $BACKEND"
 fi
 
 case "$CMD" in
